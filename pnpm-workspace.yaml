@@ -1,0 +1,61 @@
+packages:
+  - apps/*
+  - packages/*
+
+# ── Supply-chain security ─────────────────────────────────────────────────────
+# Dependency install scripts are denied unless listed here. With strictDepBuilds,
+# an unreviewed dependency that wants to run a script fails the install instead
+# of silently running (or silently skipping) it. Review before adding entries.
+allowBuilds:
+  esbuild: true
+strictDepBuilds: true
+
+# Don't resolve versions published in the last 3 days (in minutes). Most
+# hijacked releases are caught and yanked within that window. For an urgent
+# security patch, add the package to minimumReleaseAgeExclude temporarily.
+minimumReleaseAge: 4320
+
+# Refuse a version whose publish provenance/trust is weaker than earlier ones
+# (a classic sign of a hijacked maintainer account). Versions published over a
+# year ago are exempt: takeovers are caught long before that, and old release
+# lines (e.g. semver@6) predate npm provenance entirely.
+trustPolicy: no-downgrade
+trustPolicyIgnoreAfter: 525600
+
+# Transitive deps may not pull from git repos or raw tarball URLs.
+blockExoticSubdeps: true
+
+# ── Shared dependency versions ───────────────────────────────────────────────
+# Reference these from package.json as "catalog:" so every app and package
+# stays on the same version. Expo-managed packages (react-native, expo-*,
+# and the mobile app's react) are pinned by `expo install` instead.
+catalog:
+  '@electric-sql/pglite': ^0.5.0
+  '@eslint/js': ^10.0.0
+  '@hono/node-server': ^2.1.0
+  '@hono/zod-validator': ^0.9.0
+  '@supabase/supabase-js': ^2.110.0
+  '@tanstack/react-query': ^5.100.0
+  '@types/node': ^24.0.0
+  '@types/react': ~19.2.7
+  '@types/react-dom': ~19.2.3
+  '@vitejs/plugin-react': ^6.0.0
+  esbuild: ^0.28.0
+  eslint: ^10.0.0
+  eslint-plugin-react-hooks: ^7.0.0
+  eslint-plugin-react-refresh: ^0.5.0
+  globals: ^17.0.0
+  hono: ^4.13.0
+  prettier: ^3.9.0
+  react: ^19.2.7
+  react-dom: ^19.2.7
+  react-router: ^8.0.0
+  styled-components: ^6.5.0
+  supabase: ^2.110.0
+  tsx: ^4.23.0
+  turbo: ^2.11.0
+  typescript: ~6.0.3
+  typescript-eslint: ^8.70.0
+  vite: ^8.0.0
+  vitest: ^5.0.0
+  zod: ^4.5.0

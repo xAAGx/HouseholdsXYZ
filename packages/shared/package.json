@@ -1,0 +1,25 @@
+{
+  "name": "@households/shared",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Platform-neutral domain logic shared by web, server and mobile: schemas, permissions, privacy rules, API error contract.",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@households/db": "workspace:*",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@households/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

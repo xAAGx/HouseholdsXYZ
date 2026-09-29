@@ -1,0 +1,5 @@
+{
+  "extends": "@households/tsconfig/library.json",
+  "include": ["src"],
+  "exclude": ["**/*.test.ts"]
+}

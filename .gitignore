@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+.vercel/
+.turbo/
+*.tsbuildinfo
+
+# Environment & secrets: never commit these. Only *.example files are tracked.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p8
+*.p12
+*.jks
+*.mobileprovision
+
+# Supabase local state
+supabase/.branches/
+supabase/.temp/
+
+# Expo / React Native
+.expo/
+web-build/
+expo-env.d.ts
+.metro-health-check*
+apps/mobile/ios/
+apps/mobile/android/
+
+# Logs & OS / editor noise
+*.log
+npm-debug.log*
+pnpm-debug.log*
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Tests
+coverage/

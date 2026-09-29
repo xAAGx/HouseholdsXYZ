@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "Households.xyz",
+    "slug": "households-xyz",
+    "scheme": "householdsxyz",
+    "version": "0.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "xyz.households.app"
+    },
+    "android": {
+      "package": "xyz.households.app",
+      "allowBackup": false,
+      "adaptiveIcon": {
+        "backgroundColor": "#2F6F5E",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}

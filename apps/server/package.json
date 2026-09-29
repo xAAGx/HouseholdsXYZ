@@ -1,0 +1,34 @@
+{
+  "name": "@households/server",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Households.xyz API: Hono on Vercel Functions.",
+  "type": "module",
+  "exports": {
+    "./app-type": "./src/app-type.ts"
+  },
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=.env --clear-screen=false src/entry-node.ts",
+    "build": "tsx scripts/build-vercel.ts",
+    "preview": "tsx --env-file-if-exists=.env scripts/preview.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@households/db": "workspace:*",
+    "@households/shared": "workspace:*",
+    "@hono/node-server": "catalog:",
+    "@hono/zod-validator": "catalog:",
+    "@supabase/supabase-js": "catalog:",
+    "hono": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@households/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "esbuild": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

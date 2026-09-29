@@ -1,0 +1,4 @@
+{
+  "extends": "@households/tsconfig/node.json",
+  "include": ["src"]
+}

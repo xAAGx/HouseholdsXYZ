@@ -1,0 +1,23 @@
+{
+  "name": "@households/api-client",
+  "version": "0.0.0",
+  "private": true,
+  "description": "End-to-end typed client for the Households.xyz API (Hono RPC), shared by web and mobile.",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@households/shared": "workspace:*",
+    "hono": "catalog:"
+  },
+  "devDependencies": {
+    "@households/server": "workspace:*",
+    "@households/tsconfig": "workspace:*",
+    "typescript": "catalog:"
+  }
+}

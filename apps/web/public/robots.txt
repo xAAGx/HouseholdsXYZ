@@ -1,0 +1,5 @@
+# Only households that choose to be public are meant to be found.
+# Signed-in areas are private and must never be indexed.
+User-agent: *
+Disallow: /app
+Disallow: /sign-in

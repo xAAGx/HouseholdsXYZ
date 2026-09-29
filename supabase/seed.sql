@@ -1,0 +1,4 @@
+-- Local development seed data. Runs on `pnpm db:reset`.
+--
+-- Never put real people's data here (names, emails, photos, addresses). This
+-- file is committed to git. Use obviously fake fixtures only.
