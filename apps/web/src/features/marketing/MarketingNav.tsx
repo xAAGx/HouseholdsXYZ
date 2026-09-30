@@ -18,7 +18,7 @@ export function MarketingNav() {
       </Links>
       <Actions>
         <SignIn to="/sign-in">Sign in</SignIn>
-        <ButtonLink to="/sign-in">Get started</ButtonLink>
+        <ButtonLink to="/sign-up">Get started</ButtonLink>
       </Actions>
     </Bar>
   )

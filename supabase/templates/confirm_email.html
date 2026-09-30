@@ -1,0 +1,16 @@
+<h2>Confirm your email</h2>
+
+<p>
+  Thanks for signing up to Households.xyz. Confirm this is your email address to finish creating
+  your account:
+</p>
+
+<p>
+  <a href="{{ .RedirectTo }}/auth/confirm?token_hash={{ .TokenHash }}&type=email"
+    >Confirm my email</a
+  >
+</p>
+
+<p>The link works once and expires in an hour. It works on any device.</p>
+
+<p>If you didn't sign up, you can ignore this email. No account is created without this link.</p>

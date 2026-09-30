@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { cityIdSchema, type HouseholdPlace } from '../geo/places'
 import type { HouseholdRole } from '../permissions/roles'
 import type { HouseholdVisibility } from '../privacy/visibility'
 import { householdSlugSchema } from './slug'
@@ -20,7 +21,9 @@ export const householdAreaSchema = z.string().trim().max(120, 'Use at most 120 c
 
 export const createHouseholdInputSchema = z.strictObject({
   name: householdNameSchema,
+  /** The last part of the address. Unique within the city. */
   slug: householdSlugSchema,
+  cityId: cityIdSchema,
 })
 export type CreateHouseholdInput = z.infer<typeof createHouseholdInputSchema>
 
@@ -32,4 +35,6 @@ export interface HouseholdSummary {
   visibility: HouseholdVisibility
   avatarPath: string | null
   myRole: HouseholdRole
+  /** Null only for households created before addresses had a city. */
+  place: HouseholdPlace | null
 }

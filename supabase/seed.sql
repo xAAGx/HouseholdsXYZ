@@ -1,4 +1,5 @@
--- Local development seed data. Runs on `pnpm db:reset`.
+-- Seed data for a local database. Unused for now: there is no local database
+-- (one hosted project; `supabase db push` doesn't run seeds).
 --
 -- Never put real people's data here (names, emails, photos, addresses). This
 -- file is committed to git. Use obviously fake fixtures only.

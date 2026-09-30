@@ -27,7 +27,7 @@ export function HeroSection() {
           points to the insurance papers. Private by default, shared on your terms.
         </Lede>
         <Actions>
-          <ButtonLink to="/sign-in" $size="lg">
+          <ButtonLink to="/sign-up" $size="lg">
             Start your household
           </ButtonLink>
           <ButtonAnchor href="#features" $size="lg" $variant="secondary">

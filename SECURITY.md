@@ -15,27 +15,31 @@ are the product.** Every change is measured against the rules below.
 3. **Least privilege everywhere.** No implicit grants, column-scoped updates,
    narrow RPCs, no service-role key in any request path, minimal dependency
    install scripts.
-4. **Collect less.** Don't store what we don't need. No exact addresses or
-   coordinates, no contact details outside `auth.users`, no analytics or
-   third-party trackers, no third-party CDNs.
-5. **Children get the strongest protections.** Never discoverable, never
-   public, parent-managed membership and messaging, permission ceilings
-   enforced in the database.
+4. **Collect less.** Don't store what we don't need. Adults give a name, date
+   of birth, phone and home city at sign-up; date of birth and phone live in
+   `account_details` (owner-only, never in profiles, JWTs or user metadata).
+   Places stop at the city: no street addresses or coordinates. No analytics
+   or third-party trackers, no third-party CDNs.
+5. **Children get the strongest protections.** Accounts are 18+ (enforced in
+   SQL); children never sign up themselves. They are never discoverable, never
+   public, never have a location, and their membership and messaging are
+   parent-managed, with permission ceilings enforced in the database.
 6. **Don't leak by existence.** "Private" and "doesn't exist" look identical
-   to outsiders (same 404, same message). Identical 401s for every auth failure.
-   Sign-in never reveals whether an account exists.
+   to outsiders (same 404, same message), and a moved household only redirects
+   people who can see it. Identical 401s for every auth failure. Sign-up and
+   password reset never reveal whether an account exists.
 
 ## How it's enforced
 
-| Layer            | Controls                                                                                                                                                                                                                                                                                                          |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Database**     | RLS on every table (tested) · default privileges revoked for `anon`/`authenticated` · column-level `UPDATE` grants · `SECURITY DEFINER` helpers only in the unexposed `private` schema with `search_path = ''` · writes to memberships only via RPCs                                                              |
-| **API**          | Supabase JWT verified per request · per-request client _as the user_ (RLS applies) · exact-origin CORS, no credentials · strict security headers · `Cache-Control: no-store` · 1 MB body limit · per-user rate limit (per-instance until a shared store is added) · uniform, non-leaky errors · config fails fast |
-| **Web**          | Strict CSP (no inline/eval scripts) · no `dangerouslySetInnerHTML` (lint) · build refuses secret keys in `VITE_*` · no source maps in production · `no-referrer` · query cache cleared on sign-out · open-redirect-safe `returnTo`                                                                                |
-| **Mobile**       | Tokens in the OS keychain (expo-secure-store) when auth lands · `allowBackup: false` on Android · `EXPO_PUBLIC_*` treated as public                                                                                                                                                                               |
-| **Auth**         | Passwordless email OTP (8 digits, 10 min, single use) · PKCE · refresh-token rotation · TOTP MFA available · anonymous sign-ins off · captcha (enable on the hosted project before launch)                                                                                                                        |
-| **Logs**         | Structured and redacted (tokens, emails, phones, keys) · route patterns instead of URLs · no bodies, IPs or user agents                                                                                                                                                                                           |
-| **Supply chain** | pnpm: install scripts denied by default (`allowBuilds`), 3-day minimum release age, trust-downgrade detection, no exotic transitive sources · registry over HTTPS · lockfile committed                                                                                                                            |
+| Layer            | Controls                                                                                                                                                                                                                                                                                                                          |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Database**     | RLS on every table (tested) · default privileges revoked for `anon`/`authenticated` · column-level `UPDATE` grants · `SECURITY DEFINER` helpers only in the unexposed `private` schema with `search_path = ''` · writes to memberships only via RPCs                                                                              |
+| **API**          | Supabase JWT verified per request · per-request client _as the user_ (RLS applies) · exact-origin CORS, no credentials · strict security headers · `Cache-Control: no-store` · 1 MB body limit · per-user rate limit (per-instance until a shared store is added) · uniform, non-leaky errors · config fails fast                 |
+| **Web**          | Strict CSP (no inline/eval scripts) · no `dangerouslySetInnerHTML` (lint) · build refuses secret keys in `VITE_*` · no source maps in production · `no-referrer` · query cache cleared on sign-out · open-redirect-safe `returnTo`                                                                                                |
+| **Mobile**       | Tokens in the OS keychain (expo-secure-store) when auth lands · `allowBackup: false` on Android · `EXPO_PUBLIC_*` treated as public                                                                                                                                                                                               |
+| **Auth**         | Email + password (12+ characters with lower, upper, digit and symbol; max 72 bytes) · email confirmation required · email links single use, 1 hour, token hash (any device) · password-change email · refresh-token rotation · TOTP MFA available · anonymous sign-ins off · captcha (enable on the hosted project before launch) |
+| **Logs**         | Structured and redacted (tokens, emails, phones, keys) · route patterns instead of URLs · no bodies, IPs or user agents                                                                                                                                                                                                           |
+| **Supply chain** | pnpm: install scripts denied by default (`allowBuilds`), 3-day minimum release age, trust-downgrade detection, no exotic transitive sources · registry over HTTPS · lockfile committed                                                                                                                                            |
 
 ## Checklist for every change
 

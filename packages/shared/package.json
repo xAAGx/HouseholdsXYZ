@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@households/db": "workspace:*",
+    "libphonenumber-js": "^1.13.14",
     "zod": "catalog:"
   },
   "devDependencies": {

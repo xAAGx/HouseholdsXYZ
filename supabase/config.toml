@@ -1,3 +1,7 @@
+# We don't run Supabase locally (no Docker): one hosted project serves local
+# development and production. The [auth] settings below are the record of what
+# the hosted project's dashboard must match; see README "Supabase setup".
+#
 # For detailed configuration reference documentation, visit:
 # https://supabase.com/docs/guides/local-development/cli/config
 # A string used to distinguish different Supabase projects on the same host. Defaults to the
@@ -233,7 +237,8 @@ max_frequency = "60s"
 # Number of characters used in the email OTP.
 otp_length = 8
 # Number of seconds before the email OTP expires (defaults to 1 hour).
-otp_expiry = 600
+# Also how long email links (confirm, reset password, change email) stay valid.
+otp_expiry = 3600
 
 # Use a production-ready SMTP server
 # [auth.email.smtp]
@@ -245,20 +250,27 @@ otp_expiry = 600
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
 
-# Sign-in is passwordless: the email carries a one-time code (no clickable login link to phish).
-[auth.email.template.magic_link]
-subject = "Your Households.xyz sign-in code"
-content_path = "./supabase/templates/sign_in_code.html"
-
+# Every email link goes to {{ .RedirectTo }}/auth/confirm with a token hash
+# (verifyOtp), not a PKCE code, so it works on any device. RedirectTo is the
+# origin the app passed (localhost or production, if on the Redirect URLs
+# allowlist), falling back to the Site URL. Keep these in sync with the hosted
+# project's templates (Authentication > Emails).
 [auth.email.template.confirmation]
-subject = "Your Households.xyz sign-in code"
-content_path = "./supabase/templates/sign_in_code.html"
+subject = "Confirm your Households.xyz email"
+content_path = "./supabase/templates/confirm_email.html"
 
-# Uncomment to customize notification email template
-# [auth.email.notification.password_changed]
-# enabled = true
-# subject = "Your password has been changed"
-# content_path = "./supabase/templates/password_changed_notification.html"
+[auth.email.template.recovery]
+subject = "Reset your Households.xyz password"
+content_path = "./supabase/templates/reset_password.html"
+
+[auth.email.template.email_change]
+subject = "Confirm your new Households.xyz email"
+content_path = "./supabase/templates/change_email.html"
+
+[auth.email.notification.password_changed]
+enabled = true
+subject = "Your Households.xyz password was changed"
+content_path = "./supabase/templates/password_changed.html"
 
 [auth.sms]
 # Allow/disallow new user signups via SMS to your project.

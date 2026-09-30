@@ -1,110 +1,86 @@
 # Next session: read this first
 
-Written 2026-09-29 at the end of the scaffold + design-system session.
+Updated 2026-09-30: sign-up, places and household addresses built; moving to
+hosted Supabase + Vercel.
 
-## 1. Household address and uniqueness
+## Decisions so far (2026-09-29, with the user)
 
-### Decided (2026-09-29, with the user)
+- **Household URL:** `households.xyz/<country>/<state>/<city>/<house-name>`, e.g.
+  `/us/california/san-francisco/TheSmiths`. Country = lowercase ISO code; state
+  and city = name slugs. House name unique **per city**, case-insensitive.
+- **Moving:** the URL follows the household; old URLs redirect, but only for
+  people who can see the household (outsiders get the same 404 as "doesn't exist").
+- **Places:** worldwide, from GeoNames (CC BY 4.0, credited next to every place
+  picker), stored in our own database.
+- **Sign-up:** a normal form: first and last name, email, password, date of
+  birth, phone, country → state → city, accept Terms and Privacy. **18+ only.**
+  The household is created right after sign-up, or the person joins by invite.
+- **Privacy priority:** strictness is about **children**. Adults can give
+  profile and location data. Children: never discoverable, never public, no self
+  sign-up, no location, parent-managed.
+- **Infrastructure (2026-09-30):** no Docker. **One** hosted Supabase project for
+  local dev and production (user's choice over separate dev/prod). Email links
+  use `{{ .RedirectTo }}` so local dev gets localhost links. Accepted trade-offs:
+  test accounts sit beside real users, `db:push` goes straight to production,
+  `http://localhost:5180` stays on the redirect allowlist. Two Vercel projects
+  (web, API). Revisit a separate dev project once there are real users.
 
-- **URL:** `households.xyz/<country>/<state>/<city>/<house-name>`, for example
-  `/us/california/san-francisco/TheSmiths`. Country = 2-letter ISO code
-  (lowercase); state and city = name slugs (official state codes are unreadable
-  in many countries). A 2-letter first segment can never clash with app routes
-  like `/app` or `/sign-in`.
-- **Uniqueness:** house name unique **per city**, case-insensitive (display
-  keeps its casing).
-- **Moving:** the URL follows the household to its new city; old URLs redirect,
-  but only for people who could see the household anyway (outsiders get the same
-  404 as a nonexistent household).
-- **Coverage:** worldwide. Countries, states/regions and cities (~150k, population
-  ≥ 1,000) from **GeoNames** (CC BY 4.0: show "Place data © GeoNames" in the app),
-  stored in our own database so no third-party lookup happens at sign-up.
+## Done in this session (not committed yet)
 
-### Still to discuss
+- Migration `20260929180000_places_signup_household_address.sql`: `geo_*`
+  tables, name/city on `profiles`, owner-only `account_details` (date of birth,
+  phone), sign-up validated in `private.handle_new_user()` (strips date of birth,
+  phone and city from `raw_user_meta_data` so they never ride in JWTs), per-city
+  household slugs, `household_address_history` + `resolve_household_address()`,
+  `create_household(name, slug, city_id)`. 52 RLS tests.
+- `scripts/geo-import.ts` (`pnpm geo:import`, needs `DATABASE_URL`).
+- Shared: `auth/schemas.ts` (sign-up/in/reset, password rules, 18+, phone to
+  E.164), `geo/places.ts`, `householdPath(place, slug)`.
+- API: `/v1/me` and `/v1/households` return `place`; creating needs `cityId`.
+- Web: `/sign-up`, `/sign-in`, `/forgot-password`, `/reset-password`,
+  `/auth/confirm`, `/households/new` (onboarding, city pre-filled), dashboard
+  redirects there when empty, household route `/:country/:region/:city/:name`,
+  placeholder `/terms` and `/privacy`. New UI: `Select`, `Combobox`,
+  `PasswordField`, `Checkbox`, `FieldGroup`, `CardPage`, `LocationPicker`.
+- Bundle: the phone library (`auth/phone.ts`) only loads with the auth pages,
+  and the household page is lazy. Entry chunk 629 kB → 334 kB (104 kB gzip).
+- `scripts/` has a tsconfig; `pnpm check` now typechecks the importer too.
+- Email templates in `supabase/templates/` (token-hash links to
+  `{{ .RedirectTo }}/auth/confirm`, work on any device; password-changed
+  notice). Link expiry now 1 hour.
+- DB scripts moved off Docker: `db:push`, `db:types` (`--linked`), `db:lint`
+  (`--linked`); `db:start/stop/reset/setup` removed. README "Supabase setup"
+  has the dashboard checklist.
 
-- A public household page never lists members or children (adults-only
-  publishing is already enforced in SQL). Do we need an extra rule for small
-  towns, where city + family name can identify a household?
+## Next: pick one with the user
 
-### Original open questions (kept for context)
+1. **Household page** at `/:country/:region/:city/:name`: call
+   `resolve_household_address`; if `is_current` is false, redirect to the
+   current address. Show members' view vs public profile. Private and missing
+   must stay identical.
+2. **Invites** ("I have an invite" in onboarding): invite links with expiry,
+   role, single use; accepting needs an account.
+3. **Children:** parent-managed child profiles. They can't use sign-up (the
+   new-user trigger requires adult details), so they need their own
+   server-side path. Needs a design decision: do children ever log in?
+4. **Account settings:** change name, phone (re-verify), email, password, MFA.
+5. **Legal pages:** real Terms of Service and Privacy Policy before launch
+   (sign-up links to the placeholders).
 
-- Is the house name unique **per city**, per country, or globally? Per-city allows
-  many "TheSmiths" households but makes the city part of the identity.
-- What happens when a household moves city? Does its URL change, and do old
-  links redirect?
-- A person can belong to several households (grandparents' home, cabin), each
-  with its own location.
-- Privacy: city-level location is fine for adults, but **children must never be
-  locatable**. Does the URL (which reveals the city) show for private
-  households at all? Today private and nonexistent households must look
-  identical to outsiders, and the URL must not leak that.
-- The format of each segment (country ISO code, state code, city slug) and where
-  the lists of countries, states and cities come from.
-- Reserved words per segment.
+Still to discuss: a public household page never lists members or children, but
+in small towns city + family name can identify a household. Extra rule?
 
-What exists today, to change once decided:
-- `households.slug` + `slug_key` (globally unique, 3–32 ASCII characters) and
-  `private.reserved_slugs` in `supabase/migrations/20260929120000_core_identity_households.sql`.
-  Don't edit that migration; add a new one.
-- `householdSlugSchema`, `suggestHouseholdSlug`, `householdPath()` in
-  `packages/shared` (a test keeps the reserved lists in sync with SQL).
-- Route `/house/:slug` in `apps/web/src/app/router.tsx`.
-- `households.area` is free text today. Replace it with structured
-  country/state/city.
+## Setup status on the user's machine
 
-## 2. Then build: the sign-up and onboarding flow
-
-User decisions (2026-09-29):
-
-- **Normal sign-up form with email and password**, not passwordless codes, so we
-  collect the data we need.
-- **Pick country, state and city during sign-up.**
-- Clarified priority: "privacy is a must" was mainly about **children**. Adults
-  can give profile and location data. Children's protections stay strict: not
-  discoverable, never public, parent-managed, no self sign-up.
-
-Planned flow (confirm the fields with the user):
-
-1. **Create account:** name, email, password, country → state → city, and
-   agreement to the Terms and Privacy policy. Adults only; parents add children
-   from inside the household.
-2. Confirm email (Supabase confirmations are on).
-3. **Create your household** (name, and the address from §1), or **"I have an
-   invite"**.
-4. Invite people (optional), then land on the household home.
-5. **Sign in:** email + password, "Forgot password" (reset by email).
-   Two-factor is offered afterwards in settings, prompted for owners/admins.
-
-Implementation notes:
-
-- Today `apps/web/src/pages/SignInPage.tsx` does email OTP (8 digits,
-  `signInWithOtp` / `verifyOtp`). Replace it with `signUp` / `signInWithPassword`
-  / `resetPasswordForEmail`, with separate `/sign-up`, `/sign-in` and
-  `/reset-password` routes.
-- Password rules already exist in `supabase/config.toml`: at least 12 characters,
-  upper, lower, digits and symbols. Mirror them in a zod schema in
-  `packages/shared/src/auth/schemas.ts` and update the hosted project to match.
-  Consider a leaked-password check (Supabase Pro), and a captcha (Turnstile) on
-  sign-up.
-- Profile fields (name, country/state/city) need a new migration on
-  `public.profiles` with RLS, column grants, and `rls.test.ts` cases. Keep
-  location **off** child profiles, or hidden. Set them in
-  `private.handle_new_user()` from validated sign-up metadata, or in a
-  follow-up RPC.
-- Don't reveal whether an email already has an account (sign-up and reset show
-  the same message).
-- UI must follow DESIGN.md: these are account screens, so no Fredoka, highlights
-  or tilts (§12).
-
-## 3. Setup status on the user's machine
-
-- pnpm 12.6.0 installed (old copies removed). Node 22.16 (24 recommended).
-- `apps/web/.env` has a publishable key. The secret key was removed (it must
-  never be in `VITE_*`).
-- `apps/server/.env`: the user still needs to copy `SUPABASE_URL` and
-  `SUPABASE_PUBLISHABLE_KEY` from the web `.env`, or the API won't start.
-- If using hosted Supabase: push migrations (`pnpm exec supabase link`, then
-  `pnpm exec supabase db push`), and set the email templates (`{{ .Token }}` is
-  no longer needed once we switch to passwords) and SMTP.
-- Scaffold committed on branch `initial-scaffold` (not yet merged into `main`
-  or pushed; remote is github.com/xAAGx/HouseholdsXYZ).
+- pnpm 12.6.0 at `%LOCALAPPDATA%\pnpm\bin` (restart VS Code if `pnpm` still
+  resolves to an old copy). Node 22.16 (24 recommended).
+- `apps/web/.env` has a publishable key. `apps/server/.env` needs
+  `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` (same values as the web `.env`).
+- Hosted setup in progress (user creating the Supabase and Vercel projects):
+  follow README "Supabase setup" and "Deploying". Not yet known: whether the
+  user owns `households.xyz`. If not, add the API's vercel.app URL to
+  `connect-src` in `apps/web/vercel.json`.
+- The new migration hasn't run on real Supabase yet (only PGlite). First
+  `pnpm db:push` + a real sign-up is its first real test.
+- Git: scaffold committed on branch `initial-scaffold` (not merged or pushed;
+  remote github.com/xAAGx/HouseholdsXYZ). This session's work is uncommitted.

@@ -1,0 +1,19 @@
+<h2>Confirm your new email</h2>
+
+<p>
+  You asked to change the email on your Households.xyz account from {{ .Email }} to {{ .NewEmail }}.
+  Confirm the change here:
+</p>
+
+<p>
+  <a href="{{ .RedirectTo }}/auth/confirm?token_hash={{ .TokenHash }}&type=email_change"
+    >Confirm the change</a
+  >
+</p>
+
+<p>
+  The link works once and expires in an hour. We send this to both addresses, and the change happens
+  once both are confirmed.
+</p>
+
+<p>If you didn't ask for this, don't open the link, and change your password.</p>

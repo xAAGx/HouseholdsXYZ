@@ -110,6 +110,17 @@ describe('input handling', () => {
     )
   })
 
+  it('requires a city for new households (addresses are per city)', async () => {
+    const res = await app.request('/v1/households', {
+      method: 'POST',
+      headers: { ...authed, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'The Smiths', slug: 'TheSmiths' }),
+    })
+    expect(res.status).toBe(422)
+    const body: unknown = await res.json()
+    expect(isApiErrorBody(body) && body.error.issues?.map((i) => i.path)).toEqual(['cityId'])
+  })
+
   it('rejects oversized bodies', async () => {
     const res = await app.request('/v1/households', {
       method: 'POST',

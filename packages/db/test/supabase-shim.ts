@@ -8,7 +8,7 @@ export const MIGRATIONS_DIR = join(import.meta.dirname, '../../../supabase/migra
 /**
  * Just enough of Supabase's platform (roles, auth schema, default grants) to run
  * our migrations in-process with PGlite. This is a fast approximation for CI;
- * the real stack (`supabase start` + `supabase test db`) remains the authority.
+ * the hosted Supabase project remains the authority.
  */
 const SUPABASE_SHIM = /* sql */ `
   create role anon nologin;
@@ -36,6 +36,25 @@ const SUPABASE_SHIM = /* sql */ `
   alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
 `
 
+/** A few real GeoNames places, enough to exercise addresses and sign-up. */
+export const PLACES = {
+  sanFrancisco: 5391959,
+  newYorkCity: 5128581,
+  cairo: 360630,
+} as const
+
+const PLACES_SEED = /* sql */ `
+  insert into public.geo_countries (code, name) values ('US', 'United States'), ('EG', 'Egypt');
+  insert into public.geo_regions (id, country_code, name, slug) values
+    ('US.CA', 'US', 'California', 'california'),
+    ('US.NY', 'US', 'New York', 'new-york'),
+    ('EG.11', 'EG', 'Cairo Governorate', 'cairo-governorate');
+  insert into public.geo_cities (id, region_id, country_code, name, ascii_name, slug, population) values
+    (${PLACES.sanFrancisco}, 'US.CA', 'US', 'San Francisco', 'San Francisco', 'san-francisco', 808437),
+    (${PLACES.newYorkCity}, 'US.NY', 'US', 'New York City', 'New York City', 'new-york-city', 8804190),
+    (${PLACES.cairo}, 'EG.11', 'EG', 'Cairo', 'Cairo', 'cairo', 9606916);
+`
+
 export async function createTestDatabase(): Promise<PGlite> {
   const db = new PGlite()
   await db.exec(SUPABASE_SHIM)
@@ -45,6 +64,7 @@ export async function createTestDatabase(): Promise<PGlite> {
   for (const file of files) {
     await db.exec(readFileSync(join(MIGRATIONS_DIR, file), 'utf8'))
   }
+  await db.exec(PLACES_SEED)
   return db
 }
 
@@ -65,10 +85,17 @@ export async function as<T>(db: PGlite, actor: Actor, fn: () => Promise<T>): Pro
   }
 }
 
-export async function createAuthUser(
-  db: PGlite,
-  meta: Record<string, unknown> = {},
-): Promise<string> {
+/** Valid sign-up details, as the web sign-up form sends them. */
+export const VALID_SIGN_UP = {
+  first_name: 'Test',
+  last_name: 'Person',
+  date_of_birth: '1990-01-01',
+  phone: '+14155550100',
+  city_id: PLACES.sanFrancisco,
+}
+
+/** Inserts an auth user the way GoTrue does, with exactly this metadata. */
+export async function insertAuthUser(db: PGlite, meta: Record<string, unknown>): Promise<string> {
   const { rows } = await db.query<{ id: string }>(
     'insert into auth.users (raw_user_meta_data) values ($1) returning id',
     [meta],
@@ -76,4 +103,9 @@ export async function createAuthUser(
   const id = rows[0]?.id
   if (!id) throw new Error('failed to create auth user')
   return id
+}
+
+/** Signs up a valid adult, overriding any sign-up fields given. */
+export function createAuthUser(db: PGlite, overrides: Record<string, unknown> = {}) {
+  return insertAuthUser(db, { ...VALID_SIGN_UP, ...overrides })
 }

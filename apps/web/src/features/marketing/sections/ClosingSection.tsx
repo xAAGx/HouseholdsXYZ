@@ -11,7 +11,7 @@ export function ClosingSection() {
           <Lede>
             Set up your household in a few minutes. It stays private until you decide otherwise.
           </Lede>
-          <ButtonLink to="/sign-in" $size="lg">
+          <ButtonLink to="/sign-up" $size="lg">
             Start your household
           </ButtonLink>
         </Centered>

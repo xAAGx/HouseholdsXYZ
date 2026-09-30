@@ -1,7 +1,10 @@
 export * from './constants'
 
 export * from './api/errors'
+export * from './auth/password'
+export * from './auth/phone'
 export * from './auth/schemas'
+export * from './geo/places'
 export * from './households/schemas'
 export * from './households/slug'
 export * from './permissions/roles'

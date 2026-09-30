@@ -1,12 +1,13 @@
 import { HOUSEHOLD_VISIBILITY_LABELS, ROLE_LABELS, householdPath } from '@households/shared'
 import type { Accent } from '@households/theme'
-import { Link } from 'react-router'
+import { Link, Navigate } from 'react-router'
 import styled from 'styled-components'
 
 import { AppHeader } from '../components/app/AppHeader'
 import { Icon } from '../components/icons'
 import {
   Button,
+  ButtonLink,
   Card,
   CardList,
   CardTitle,
@@ -18,7 +19,6 @@ import {
   Text,
 } from '../components/ui'
 import { useAuth } from '../features/auth/auth-context'
-import { CreateHouseholdForm } from '../features/households/CreateHouseholdForm'
 import { useMyHouseholds } from '../features/households/queries'
 
 const tones: Accent[] = ['yellow', 'sky', 'grass', 'grape', 'coral']
@@ -26,6 +26,9 @@ const tones: Accent[] = ['yellow', 'sky', 'grass', 'grape', 'coral']
 export function DashboardPage() {
   const { signOut } = useAuth()
   const households = useMyHouseholds()
+
+  // New accounts go straight to setting up their first household.
+  if (households.data?.length === 0) return <Navigate to="/households/new" replace />
 
   return (
     <>
@@ -38,15 +41,17 @@ export function DashboardPage() {
       />
       <Page>
         <Stack $gap={6}>
-          <PageTitle>Your households</PageTitle>
+          <Header>
+            <PageTitle>Your households</PageTitle>
+            <ButtonLink to="/households/new" $variant="secondary" $size="sm">
+              Create a household
+            </ButtonLink>
+          </Header>
 
           <Card $variant="plain" $padding="md">
             {households.isPending && <Muted>Loading…</Muted>}
             {households.isError && (
               <Text>We couldn’t load your households. Please try again in a moment.</Text>
-            )}
-            {households.data?.length === 0 && (
-              <Text>You’re not part of a household yet. Create one below.</Text>
             )}
             {households.data && households.data.length > 0 && (
               <HouseholdList>
@@ -57,11 +62,23 @@ export function DashboardPage() {
                     </IconChip>
                     <div>
                       <CardTitle>
-                        <Link to={householdPath(household.slug)}>{household.name}</Link>
+                        {household.place ? (
+                          <Link to={householdPath(household.place, household.slug)}>
+                            {household.name}
+                          </Link>
+                        ) : (
+                          household.name
+                        )}
                       </CardTitle>
                       <Muted>
-                        {ROLE_LABELS[household.myRole]} ·{' '}
-                        {HOUSEHOLD_VISIBILITY_LABELS[household.visibility]}
+                        {[
+                          ROLE_LABELS[household.myRole],
+                          HOUSEHOLD_VISIBILITY_LABELS[household.visibility],
+                          household.place &&
+                            `${household.place.cityName}, ${household.place.regionName}`,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
                       </Muted>
                     </div>
                   </li>
@@ -69,18 +86,19 @@ export function DashboardPage() {
               </HouseholdList>
             )}
           </Card>
-
-          <Card $padding="lg">
-            <Stack $gap={4}>
-              <CardTitle>Create a household</CardTitle>
-              <CreateHouseholdForm />
-            </Stack>
-          </Card>
         </Stack>
       </Page>
     </>
   )
 }
+
+const Header = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: ${({ theme }) => theme.space[3]}px;
+`
 
 const HouseholdList = styled(CardList)`
   > li {

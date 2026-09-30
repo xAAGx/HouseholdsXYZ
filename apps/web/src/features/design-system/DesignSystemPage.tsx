@@ -1,5 +1,5 @@
 import { accentNames, type Accent } from '@households/theme'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import styled, { useTheme } from 'styled-components'
 
 import { AppHeader } from '../../components/app/AppHeader'
@@ -8,9 +8,12 @@ import {
   Button,
   Card,
   CardTitle,
+  Checkbox,
   Chip,
+  Combobox,
   Container,
   Eyebrow,
+  FieldGroup,
   Grid,
   HeroTitle,
   Highlight,
@@ -19,11 +22,13 @@ import {
   Muted,
   NameTag,
   PageTitle,
+  PasswordField,
   Pill,
   Playful,
   PointsBadge,
   Row,
   SectionTitle,
+  Select,
   Stack,
   StatusDot,
   StatusText,
@@ -201,7 +206,7 @@ export function DesignSystemPage() {
             <Grid $columns={3} $gap={5}>
               <TextField label="Household name" placeholder="The Smiths" />
               <TextField
-                label="Address"
+                label="Web address"
                 defaultValue="TheSmithsHouse"
                 hint="Private until you publish it."
               />
@@ -210,11 +215,71 @@ export function DesignSystemPage() {
                 defaultValue="not-an-email"
                 error="Enter a valid email address."
               />
+              <PasswordDemo />
             </Grid>
+            <FieldGroup legend="Where you live">
+              <Grid $columns={3} $gap={5}>
+                <Select label="Country" placeholder="Choose a country" defaultValue="">
+                  <option value="EG">Egypt</option>
+                  <option value="US">United States</option>
+                </Select>
+                <Select label="State or region" placeholder="Choose a country first" disabled />
+                <CityComboboxDemo />
+              </Grid>
+            </FieldGroup>
+            <Checkbox defaultChecked>
+              I agree to the <a href="#terms">Terms of Service</a>.
+            </Checkbox>
           </Block>
         </Body>
       </Container>
     </>
+  )
+}
+
+const DEMO_CITIES = [
+  { id: 1, name: 'Springfield', district: 'Sangamon County' },
+  { id: 2, name: 'Springfield', district: 'Hampden County' },
+  { id: 3, name: 'Spring Valley', district: null },
+  { id: 4, name: 'Salem', district: null },
+]
+
+function PasswordDemo() {
+  const [password, setPassword] = useState('Correct-horse')
+  return (
+    <PasswordField
+      label="Password"
+      showRequirements
+      value={password}
+      onChange={(e) => setPassword(e.target.value)}
+    />
+  )
+}
+
+function CityComboboxDemo() {
+  const [text, setText] = useState('')
+  const [picked, setPicked] = useState(false)
+  const matches = DEMO_CITIES.filter((c) => c.name.toLowerCase().startsWith(text.toLowerCase()))
+  return (
+    <Combobox
+      label="City or town"
+      placeholder="Try “spr”"
+      inputValue={text}
+      onInputChange={(value) => {
+        setText(value)
+        setPicked(false)
+      }}
+      options={matches}
+      getKey={(c) => c.id}
+      getLabel={(c) => c.name}
+      getDescription={(c) => c.district}
+      onSelect={(c) => {
+        setText(c.name)
+        setPicked(true)
+      }}
+      selected={picked}
+      emptyText="No city found."
+    />
   )
 }
 
