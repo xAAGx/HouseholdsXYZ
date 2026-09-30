@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 
 import type { AppConfig } from './config'
-import { createChildAccounts, type ChildAccounts } from './lib/child-accounts'
+import { createAdminAuth, type AdminAuth } from './lib/admin-auth'
 import { createErrorHandler, notFoundHandler } from './lib/errors'
 import { createLogger, type Logger } from './lib/logger'
 import { createSupabaseFactory, type SupabaseFactory } from './lib/supabase'
@@ -15,9 +15,11 @@ import {
 } from './middleware/rate-limit'
 import { assignRequestId } from './middleware/request-id'
 import { corsPolicy, jsonBodyLimit, noStore, securityHeaders } from './middleware/security'
+import { choreRoutes } from './routes/chores'
 import { healthRoutes } from './routes/health'
 import { householdRoutes } from './routes/households'
 import { inviteRoutes } from './routes/invites'
+import { listRoutes } from './routes/lists'
 import { meRoutes } from './routes/me'
 import { childSignInRoutes, publicHouseholdRoutes } from './routes/public'
 import type { AppEnv } from './types'
@@ -26,8 +28,8 @@ export interface AppDeps {
   logger: Logger
   supabase: SupabaseFactory
   rateLimitStore: RateLimitStore
-  /** Secret-key operations for child logins; null switches them off. */
-  childAccounts: ChildAccounts | null
+  /** Secret-key operations (child logins, deleting your account); null switches them off. */
+  adminAuth: AdminAuth | null
 }
 
 /**
@@ -38,8 +40,7 @@ export function createApp(config: AppConfig, deps: Partial<AppDeps> = {}) {
   const logger = deps.logger ?? createLogger(config.LOG_LEVEL)
   const supabase = deps.supabase ?? createSupabaseFactory(config)
   const rateLimitStore = deps.rateLimitStore ?? new MemoryRateLimitStore()
-  const childAccounts =
-    deps.childAccounts !== undefined ? deps.childAccounts : createChildAccounts(config)
+  const adminAuth = deps.adminAuth !== undefined ? deps.adminAuth : createAdminAuth(config)
 
   const app = new Hono<AppEnv>()
 
@@ -53,7 +54,7 @@ export function createApp(config: AppConfig, deps: Partial<AppDeps> = {}) {
   app.use(corsPolicy(config))
   app.use(jsonBodyLimit())
   app.use(async (c, next) => {
-    c.set('childAccounts', childAccounts)
+    c.set('adminAuth', adminAuth)
     await next()
   })
 
@@ -92,5 +93,7 @@ export function createApp(config: AppConfig, deps: Partial<AppDeps> = {}) {
     .route('/public/households', publicHouseholdRoutes(supabase.anonymous))
     .route('/v1/me', meRoutes)
     .route('/v1/households', householdRoutes)
+    .route('/v1/households/:id/lists', listRoutes)
+    .route('/v1/households/:id', choreRoutes)
     .route('/v1/invites', inviteRoutes)
 }

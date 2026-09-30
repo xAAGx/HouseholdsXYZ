@@ -19,7 +19,7 @@ const SUPABASE_CREATE_CLIENT = {
   name: '@supabase/supabase-js',
   importNames: ['createClient'],
   message:
-    'Only apps/server/src/lib/child-accounts.ts may create a Supabase client directly. Use lib/supabase.ts (acts as the user, under RLS).',
+    'Only apps/server/src/lib/admin-auth.ts may create a Supabase client directly. Use lib/supabase.ts (acts as the user, under RLS).',
 }
 
 // Design-system guardrails (DESIGN.md): UI code takes colors and fonts from the
@@ -154,12 +154,12 @@ export default defineConfig(
   },
 
   // ── Server: keep the Supabase secret key in one module (SECURITY.md) ───────
-  // Only lib/child-accounts.ts creates a client with the secret key; only
-  // api.ts wires it up. Everything else talks to Supabase as the user, via
+  // Only lib/admin-auth.ts creates a client with the secret key; only api.ts
+  // wires it up. Everything else talks to Supabase as the user, via
   // lib/supabase.ts, so RLS always applies.
   {
     files: ['apps/server/src/**/*.ts'],
-    ignores: ['apps/server/src/lib/child-accounts.ts'],
+    ignores: ['apps/server/src/lib/admin-auth.ts'],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -167,10 +167,10 @@ export default defineConfig(
           paths: [SUPABASE_CREATE_CLIENT],
           patterns: [
             {
-              group: ['**/child-accounts'],
+              group: ['**/admin-auth'],
               allowTypeImports: true,
               message:
-                'The secret-key module is wired up once, in api.ts. Routes use c.var.childAccounts.',
+                'The secret-key module is wired up once, in api.ts. Routes use c.var.adminAuth.',
             },
           ],
         },

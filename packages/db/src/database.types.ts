@@ -43,6 +43,137 @@ export type Database = {
           },
         ]
       }
+      chore_completions: {
+        Row: {
+          chore_id: string
+          completed_by: string
+          created_at: string
+          household_id: string
+          id: string
+          period_start: string
+          points: number
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: Database['public']['Enums']['chore_completion_status']
+        }
+        Insert: {
+          chore_id: string
+          completed_by: string
+          created_at?: string
+          household_id: string
+          id?: string
+          period_start: string
+          points: number
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status: Database['public']['Enums']['chore_completion_status']
+        }
+        Update: {
+          chore_id?: string
+          completed_by?: string
+          created_at?: string
+          household_id?: string
+          id?: string
+          period_start?: string
+          points?: number
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: Database['public']['Enums']['chore_completion_status']
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'chore_completions_chore_id_household_id_fkey'
+            columns: ['chore_id', 'household_id']
+            isOneToOne: false
+            referencedRelation: 'chores'
+            referencedColumns: ['id', 'household_id']
+          },
+          {
+            foreignKeyName: 'chore_completions_completed_by_fkey'
+            columns: ['completed_by']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'chore_completions_reviewed_by_fkey'
+            columns: ['reviewed_by']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      chores: {
+        Row: {
+          archived_at: string | null
+          assigned_to: string | null
+          created_at: string
+          created_by: string | null
+          due_on: string | null
+          household_id: string
+          id: string
+          needs_approval: boolean
+          notes: string | null
+          points: number
+          repeat: Database['public']['Enums']['chore_repeat']
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          archived_at?: string | null
+          assigned_to?: string | null
+          created_at?: string
+          created_by?: string | null
+          due_on?: string | null
+          household_id: string
+          id?: string
+          needs_approval?: boolean
+          notes?: string | null
+          points?: number
+          repeat?: Database['public']['Enums']['chore_repeat']
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          archived_at?: string | null
+          assigned_to?: string | null
+          created_at?: string
+          created_by?: string | null
+          due_on?: string | null
+          household_id?: string
+          id?: string
+          needs_approval?: boolean
+          notes?: string | null
+          points?: number
+          repeat?: Database['public']['Enums']['chore_repeat']
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'chores_assigned_to_fkey'
+            columns: ['assigned_to']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'chores_created_by_fkey'
+            columns: ['created_by']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'chores_household_id_fkey'
+            columns: ['household_id']
+            isOneToOne: false
+            referencedRelation: 'households'
+            referencedColumns: ['id']
+          },
+        ]
+      }
       geo_cities: {
         Row: {
           ascii_name: string
@@ -364,6 +495,242 @@ export type Database = {
           },
         ]
       }
+      list_items: {
+        Row: {
+          assigned_to: string | null
+          created_at: string
+          created_by: string | null
+          done_at: string | null
+          done_by: string | null
+          due_on: string | null
+          household_id: string
+          id: string
+          list_id: string
+          note: string | null
+          position: number
+          quantity: string | null
+          text: string
+          updated_at: string
+        }
+        Insert: {
+          assigned_to?: string | null
+          created_at?: string
+          created_by?: string | null
+          done_at?: string | null
+          done_by?: string | null
+          due_on?: string | null
+          household_id: string
+          id?: string
+          list_id: string
+          note?: string | null
+          position: number
+          quantity?: string | null
+          text: string
+          updated_at?: string
+        }
+        Update: {
+          assigned_to?: string | null
+          created_at?: string
+          created_by?: string | null
+          done_at?: string | null
+          done_by?: string | null
+          due_on?: string | null
+          household_id?: string
+          id?: string
+          list_id?: string
+          note?: string | null
+          position?: number
+          quantity?: string | null
+          text?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'list_items_assigned_to_fkey'
+            columns: ['assigned_to']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'list_items_created_by_fkey'
+            columns: ['created_by']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'list_items_done_by_fkey'
+            columns: ['done_by']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'list_items_list_id_household_id_fkey'
+            columns: ['list_id', 'household_id']
+            isOneToOne: false
+            referencedRelation: 'lists'
+            referencedColumns: ['id', 'household_id']
+          },
+        ]
+      }
+      list_members: {
+        Row: {
+          list_id: string
+          profile_id: string
+        }
+        Insert: {
+          list_id: string
+          profile_id: string
+        }
+        Update: {
+          list_id?: string
+          profile_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'list_members_list_id_fkey'
+            columns: ['list_id']
+            isOneToOne: false
+            referencedRelation: 'lists'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'list_members_profile_id_fkey'
+            columns: ['profile_id']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      lists: {
+        Row: {
+          archived_at: string | null
+          created_at: string
+          created_by: string | null
+          household_id: string
+          id: string
+          kind: Database['public']['Enums']['list_kind']
+          title: string
+          updated_at: string
+          visibility: Database['public']['Enums']['content_visibility']
+        }
+        Insert: {
+          archived_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          household_id: string
+          id?: string
+          kind?: Database['public']['Enums']['list_kind']
+          title: string
+          updated_at?: string
+          visibility?: Database['public']['Enums']['content_visibility']
+        }
+        Update: {
+          archived_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          household_id?: string
+          id?: string
+          kind?: Database['public']['Enums']['list_kind']
+          title?: string
+          updated_at?: string
+          visibility?: Database['public']['Enums']['content_visibility']
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'lists_created_by_fkey'
+            columns: ['created_by']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'lists_household_id_fkey'
+            columns: ['household_id']
+            isOneToOne: false
+            referencedRelation: 'households'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      points_ledger: {
+        Row: {
+          chore_completion_id: string | null
+          created_at: string
+          created_by: string | null
+          delta: number
+          household_id: string
+          id: number
+          note: string | null
+          profile_id: string
+          reason: Database['public']['Enums']['points_reason']
+          redemption_id: string | null
+        }
+        Insert: {
+          chore_completion_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          delta: number
+          household_id: string
+          id?: never
+          note?: string | null
+          profile_id: string
+          reason: Database['public']['Enums']['points_reason']
+          redemption_id?: string | null
+        }
+        Update: {
+          chore_completion_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          delta?: number
+          household_id?: string
+          id?: never
+          note?: string | null
+          profile_id?: string
+          reason?: Database['public']['Enums']['points_reason']
+          redemption_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'points_ledger_chore_completion_id_fkey'
+            columns: ['chore_completion_id']
+            isOneToOne: false
+            referencedRelation: 'chore_completions'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'points_ledger_created_by_fkey'
+            columns: ['created_by']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'points_ledger_household_id_fkey'
+            columns: ['household_id']
+            isOneToOne: false
+            referencedRelation: 'households'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'points_ledger_profile_id_fkey'
+            columns: ['profile_id']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'points_ledger_redemption_id_fkey'
+            columns: ['redemption_id']
+            isOneToOne: false
+            referencedRelation: 'reward_redemptions'
+            referencedColumns: ['id']
+          },
+        ]
+      }
       profiles: {
         Row: {
           account_type: Database['public']['Enums']['account_type']
@@ -411,19 +778,155 @@ export type Database = {
           },
         ]
       }
+      reward_redemptions: {
+        Row: {
+          cost: number
+          created_at: string
+          household_id: string
+          id: string
+          requested_by: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          reward_id: string
+          status: Database['public']['Enums']['redemption_status']
+        }
+        Insert: {
+          cost: number
+          created_at?: string
+          household_id: string
+          id?: string
+          requested_by: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          reward_id: string
+          status?: Database['public']['Enums']['redemption_status']
+        }
+        Update: {
+          cost?: number
+          created_at?: string
+          household_id?: string
+          id?: string
+          requested_by?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          reward_id?: string
+          status?: Database['public']['Enums']['redemption_status']
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'reward_redemptions_household_id_fkey'
+            columns: ['household_id']
+            isOneToOne: false
+            referencedRelation: 'households'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'reward_redemptions_requested_by_fkey'
+            columns: ['requested_by']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'reward_redemptions_reviewed_by_fkey'
+            columns: ['reviewed_by']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'reward_redemptions_reward_id_household_id_fkey'
+            columns: ['reward_id', 'household_id']
+            isOneToOne: false
+            referencedRelation: 'rewards'
+            referencedColumns: ['id', 'household_id']
+          },
+        ]
+      }
+      rewards: {
+        Row: {
+          archived_at: string | null
+          cost: number
+          created_at: string
+          created_by: string | null
+          description: string | null
+          household_id: string
+          id: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          archived_at?: string | null
+          cost: number
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          household_id: string
+          id?: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          archived_at?: string | null
+          cost?: number
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          household_id?: string
+          id?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'rewards_created_by_fkey'
+            columns: ['created_by']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'rewards_household_id_fkey'
+            columns: ['household_id']
+            isOneToOne: false
+            referencedRelation: 'households'
+            referencedColumns: ['id']
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
       accept_household_invite: { Args: { p_token: string }; Returns: string }
+      account_deletion_blockers: {
+        Args: never
+        Returns: { household_id: string; household_name: string; other_members: number }[]
+      }
+      adjust_points: {
+        Args: { p_delta: number; p_household_id: string; p_note: string; p_profile_id: string }
+        Returns: undefined
+      }
       begin_child_account: {
-        Args: { p_display_name: string; p_household_id: string; p_parent_id: string }
+        Args: {
+          p_display_name: string
+          p_household_id: string
+          p_parent_id: string
+        }
         Returns: string
       }
       can_manage_child: {
         Args: { p_child_id: string; p_household_id: string }
         Returns: boolean
+      }
+      cancel_reward_redemption: { Args: { p_redemption_id: string }; Returns: undefined }
+      complete_chore: {
+        Args: { p_chore_id: string; p_today: string }
+        Returns: {
+          completion_id: string
+          completion_status: Database['public']['Enums']['chore_completion_status']
+        }[]
       }
       create_child_sign_in_code: {
         Args: { p_child_id: string; p_household_id: string }
@@ -460,11 +963,18 @@ export type Database = {
           region_name: string
         }[]
       }
+      household_points: {
+        Args: { p_household_id: string }
+        Returns: { balance: number; profile_id: string }[]
+      }
       my_household_permissions: {
         Args: { p_household_id: string }
         Returns: Database['public']['Enums']['household_permission'][]
       }
+      prepare_account_deletion: { Args: never; Returns: undefined }
       redeem_child_sign_in_code: { Args: { p_code: string }; Returns: string }
+      reorder_list_items: { Args: { p_item_ids: string[]; p_list_id: string }; Returns: undefined }
+      request_reward: { Args: { p_reward_id: string }; Returns: string }
       resolve_household_address: {
         Args: {
           p_city: string
@@ -477,6 +987,14 @@ export type Database = {
           is_current: boolean
         }[]
       }
+      review_chore_completion: {
+        Args: { p_approve: boolean; p_completion_id: string }
+        Returns: undefined
+      }
+      review_reward_redemption: {
+        Args: { p_approve: boolean; p_redemption_id: string }
+        Returns: undefined
+      }
       set_household_member_role: {
         Args: {
           p_household_id: string
@@ -485,9 +1003,17 @@ export type Database = {
         }
         Returns: undefined
       }
+      set_list_members: { Args: { p_list_id: string; p_profile_ids: string[] }; Returns: undefined }
+      transfer_household_ownership: {
+        Args: { p_household_id: string; p_new_owner_id: string }
+        Returns: undefined
+      }
+      undo_chore_completion: { Args: { p_completion_id: string }; Returns: undefined }
     }
     Enums: {
       account_type: 'standard' | 'child'
+      chore_completion_status: 'pending' | 'approved' | 'rejected'
+      chore_repeat: 'once' | 'daily' | 'weekly' | 'monthly'
       content_visibility:
         'private' | 'selected_members' | 'household' | 'connections' | 'neighborhood' | 'public'
       household_permission:
@@ -506,7 +1032,10 @@ export type Database = {
         | 'manage_calendar'
       household_role: 'owner' | 'admin' | 'adult' | 'teen' | 'child' | 'caregiver' | 'guest'
       household_visibility: 'private' | 'connections' | 'neighborhood' | 'public'
+      list_kind: 'todo' | 'shopping' | 'packing' | 'other'
       membership_status: 'invited' | 'active' | 'suspended'
+      points_reason: 'chore' | 'reward' | 'adjustment'
+      redemption_status: 'requested' | 'approved' | 'rejected' | 'cancelled'
     }
     CompositeTypes: {
       [_ in never]: never
@@ -629,6 +1158,8 @@ export const Constants = {
   public: {
     Enums: {
       account_type: ['standard', 'child'],
+      chore_completion_status: ['pending', 'approved', 'rejected'],
+      chore_repeat: ['once', 'daily', 'weekly', 'monthly'],
       content_visibility: [
         'private',
         'selected_members',
@@ -654,7 +1185,10 @@ export const Constants = {
       ],
       household_role: ['owner', 'admin', 'adult', 'teen', 'child', 'caregiver', 'guest'],
       household_visibility: ['private', 'connections', 'neighborhood', 'public'],
+      list_kind: ['todo', 'shopping', 'packing', 'other'],
       membership_status: ['invited', 'active', 'suspended'],
+      points_reason: ['chore', 'reward', 'adjustment'],
+      redemption_status: ['requested', 'approved', 'rejected', 'cancelled'],
     },
   },
 } as const

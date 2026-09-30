@@ -28,9 +28,9 @@ export const childSignInRoutes = new Hono<AppEnv>().post(
   '/',
   zValidator('json', childSignInInputSchema, validationHook),
   async (c) => {
-    const childAccounts = c.var.childAccounts
-    if (!childAccounts) throw new ApiError('UNAVAILABLE', 'Child sign-in isn’t set up yet.')
-    const tokenHash = await childAccounts.signIn(c.req.valid('json').code)
+    const adminAuth = c.var.adminAuth
+    if (!adminAuth) throw new ApiError('UNAVAILABLE', 'Child sign-in isn’t set up yet.')
+    const tokenHash = await adminAuth.childSignIn(c.req.valid('json').code)
     if (!tokenHash) {
       throw new ApiError('UNAUTHENTICATED', 'That code didn’t work. Ask a parent for a new one.')
     }

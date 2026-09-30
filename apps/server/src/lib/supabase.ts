@@ -20,7 +20,7 @@ export interface SupabaseFactory {
 
 /**
  * Clients that always go through RLS. The only service-role ("admin") client
- * lives in lib/child-accounts.ts, limited to child logins (see SECURITY.md).
+ * lives in lib/admin-auth.ts, limited to four login operations (see SECURITY.md).
  */
 export function createSupabaseFactory(config: AppConfig): SupabaseFactory {
   const base = { url: config.SUPABASE_URL, publishableKey: config.SUPABASE_PUBLISHABLE_KEY }

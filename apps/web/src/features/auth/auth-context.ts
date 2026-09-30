@@ -6,6 +6,12 @@ export type AuthStatus = 'loading' | 'signed-in' | 'signed-out'
 export interface AuthState {
   status: AuthStatus
   session: Session | null
+  /**
+   * Signed in with a password, but two-step sign-in is on and hasn't been
+   * passed yet. The database shows such a session nothing, so send the person
+   * to /sign-in/verify first.
+   */
+  needsSecondFactor: boolean
   signOut: () => Promise<void>
 }
 

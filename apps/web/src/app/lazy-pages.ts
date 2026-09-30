@@ -18,6 +18,26 @@ export const InvitePage = lazy(() =>
   import('../pages/InvitePage').then((m) => ({ default: m.InvitePage })),
 )
 
+export const ListsPage = lazy(() =>
+  import('../pages/ListsPage').then((m) => ({ default: m.ListsPage })),
+)
+
+export const ListPage = lazy(() =>
+  import('../pages/ListPage').then((m) => ({ default: m.ListPage })),
+)
+
+export const ChoresPage = lazy(() =>
+  import('../pages/ChoresPage').then((m) => ({ default: m.ChoresPage })),
+)
+
+export const AccountPage = lazy(() =>
+  import('../pages/AccountPage').then((m) => ({ default: m.AccountPage })),
+)
+
+export const MfaVerifyPage = lazy(() =>
+  import('../pages/MfaVerifyPage').then((m) => ({ default: m.MfaVerifyPage })),
+)
+
 export const ChildSignInPage = lazy(() =>
   import('../pages/ChildSignInPage').then((m) => ({ default: m.ChildSignInPage })),
 )

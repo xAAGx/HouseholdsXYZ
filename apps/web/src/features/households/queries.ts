@@ -93,6 +93,12 @@ export function useLeaveHousehold(id: string) {
   )
 }
 
+export function useTransferOwnership(id: string) {
+  return useHouseholdMutation((profileId: string) =>
+    unwrap(api.v1.households[':id'].owner.$post({ param: { id }, json: { profileId } })),
+  )
+}
+
 export function useSetMemberRole(id: string) {
   return useHouseholdMutation(({ profileId, role }: { profileId: string; role: AssignableRole }) =>
     unwrap(

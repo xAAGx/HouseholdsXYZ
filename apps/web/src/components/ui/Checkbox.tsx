@@ -9,15 +9,17 @@ interface CheckboxProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'id'
   /** The label. May contain links (e.g. to the Terms). */
   children: ReactNode
   error?: string | undefined
+  /** Body-size text, for checklists (list items, chores). */
+  large?: boolean
 }
 
 /** A checkbox with its label to the right. The whole label is clickable. */
-export function Checkbox({ children, error, ...inputProps }: CheckboxProps) {
+export function Checkbox({ children, error, large = false, ...inputProps }: CheckboxProps) {
   const { id, errorId, describedBy } = useFieldIds(null, error)
 
   return (
     <div>
-      <Row htmlFor={id}>
+      <Row htmlFor={id} $large={large}>
         <Box
           id={id}
           type="checkbox"
@@ -37,11 +39,12 @@ export function Checkbox({ children, error, ...inputProps }: CheckboxProps) {
   )
 }
 
-const Row = styled.label`
+const Row = styled.label<{ $large: boolean }>`
   display: flex;
   align-items: flex-start;
   gap: ${({ theme }) => theme.space[3]}px;
-  font-size: ${({ theme }) => theme.fontSizes.sm}px;
+  font-size: ${({ theme, $large }) => ($large ? theme.fontSizes.md : theme.fontSizes.sm)}px;
+  line-height: ${({ theme }) => theme.lineHeights.snug};
   color: ${({ theme }) => theme.colors.text};
   cursor: pointer;
 `

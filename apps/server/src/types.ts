@@ -1,7 +1,7 @@
 import type { HouseholdsSupabaseClient } from '@households/db'
 import type { RequestIdVariables } from 'hono/request-id'
 
-import type { ChildAccounts } from './lib/child-accounts'
+import type { AdminAuth } from './lib/admin-auth'
 
 export interface AuthContext {
   userId: string
@@ -16,7 +16,7 @@ export interface AppEnv {
     auth: AuthContext
     /** Acts as the signed-in user, so every query is filtered by RLS. */
     supabase: HouseholdsSupabaseClient
-    /** Secret-key operations for child logins; null when switched off. */
-    childAccounts: ChildAccounts | null
+    /** Secret-key operations (lib/admin-auth.ts); null when switched off. */
+    adminAuth: AdminAuth | null
   }
 }

@@ -5,6 +5,7 @@ import {
   moveHouseholdInputSchema,
   updateHouseholdInputSchema,
   type HouseholdDetail,
+  type HouseholdMember,
   type MyMembership,
 } from '@households/shared'
 import { useState, type FormEvent } from 'react'
@@ -33,6 +34,7 @@ import {
   useHouseholdView,
   useLeaveHousehold,
   useMoveHousehold,
+  useTransferOwnership,
   useUpdateHousehold,
 } from '../features/households/queries'
 import { locationFromPlace, type LocationValue } from '../features/places/location'
@@ -68,11 +70,20 @@ export function HouseholdSettingsPage() {
     <Settings
       household={view.data.household}
       me={{ role: view.data.myRole, permissions: view.data.permissions }}
+      members={view.data.members}
     />
   )
 }
 
-function Settings({ household, me }: { household: HouseholdDetail; me: MyMembership }) {
+function Settings({
+  household,
+  me,
+  members,
+}: {
+  household: HouseholdDetail
+  me: MyMembership
+  members: HouseholdMember[]
+}) {
   const homePath = household.place ? householdPath(household.place, household.slug) : '/app'
   const canEdit = me.permissions.includes('manage_household')
 
@@ -102,7 +113,10 @@ function Settings({ household, me }: { household: HouseholdDetail; me: MyMembers
           )}
           {me.permissions.includes('publish_public') && <VisibilitySection household={household} />}
           {me.role === 'owner' ? (
-            <DeleteSection household={household} />
+            <>
+              <TransferSection household={household} members={members} />
+              <DeleteSection household={household} />
+            </>
           ) : (
             <LeaveSection household={household} />
           )}
@@ -279,6 +293,67 @@ function VisibilitySection({ household }: { household: HouseholdDetail }) {
             {update.isPending ? 'Saving…' : 'Save'}
           </Button>
         </Row>
+      </Stack>
+    </Card>
+  )
+}
+
+/** The owner hands the household to another adult and becomes an admin. */
+function TransferSection({
+  household,
+  members,
+}: {
+  household: HouseholdDetail
+  members: HouseholdMember[]
+}) {
+  const adults = members.filter((member) => !member.isMe && member.accountType === 'standard')
+  const [profileId, setProfileId] = useState('')
+  const transfer = useTransferOwnership(household.id)
+  const chosen = adults.find((member) => member.profileId === profileId)
+
+  return (
+    <Card $padding="lg">
+      <Stack $gap={4}>
+        <Stack $gap={2}>
+          <CardTitle>Hand over the household</CardTitle>
+          <Muted>
+            Make another adult the owner. You stay in the household as an admin, and can then leave
+            if you want to.
+          </Muted>
+        </Stack>
+        {adults.length === 0 ? (
+          <Text>Invite another adult first: only adults can own a household.</Text>
+        ) : (
+          <>
+            <Select
+              label="New owner"
+              placeholder="Choose someone"
+              value={profileId}
+              onChange={(e) => setProfileId(e.target.value)}
+            >
+              {adults.map((member) => (
+                <option key={member.profileId} value={member.profileId}>
+                  {member.displayName}
+                </option>
+              ))}
+            </Select>
+            {transfer.isError && (
+              <ErrorText role="alert">{apiErrorMessage(transfer.error)}</ErrorText>
+            )}
+            {chosen && (
+              <div>
+                <ConfirmButton
+                  message={`Make ${chosen.displayName} the owner of ${household.name}? Only they can undo it, by handing it back.`}
+                  confirmLabel={`Yes, hand it to ${chosen.displayName}`}
+                  busy={transfer.isPending}
+                  onConfirm={() => transfer.mutate(chosen.profileId)}
+                >
+                  Hand over
+                </ConfirmButton>
+              </div>
+            )}
+          </>
+        )}
       </Stack>
     </Card>
   )

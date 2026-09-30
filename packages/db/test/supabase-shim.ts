@@ -26,8 +26,18 @@ const SUPABASE_SHIM = /* sql */ `
   create function auth.uid() returns uuid language sql stable as $$
     select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
   $$;
+  create function auth.jwt() returns jsonb language sql stable as $$
+    select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb
+  $$;
+  -- Two-step sign-in factors (GoTrue's table, reduced to what we read).
+  create table auth.mfa_factors (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid not null references auth.users (id) on delete cascade,
+    status text not null
+  );
   grant usage on schema auth to anon, authenticated, service_role;
   grant execute on function auth.uid() to anon, authenticated, service_role;
+  grant execute on function auth.jwt() to anon, authenticated, service_role;
 
   -- Supabase's permissive platform defaults, which our migrations must override.
   grant usage on schema public to anon, authenticated, service_role;
@@ -68,10 +78,16 @@ export async function createTestDatabase(): Promise<PGlite> {
   return db
 }
 
-export type Actor = { kind: 'anon' } | { kind: 'user'; id: string } | { kind: 'service' }
+export type Actor =
+  { kind: 'anon' } | { kind: 'user'; id: string; aal: 'aal1' | 'aal2' } | { kind: 'service' }
 
 export const anon: Actor = { kind: 'anon' }
-export const user = (id: string): Actor => ({ kind: 'user', id })
+/** A signed-in user; `aal2` once they've passed two-step sign-in. */
+export const user = (id: string, aal: 'aal1' | 'aal2' = 'aal1'): Actor => ({
+  kind: 'user',
+  id,
+  aal,
+})
 /** The API's secret-key client (child accounts only). */
 export const service: Actor = { kind: 'service' }
 
@@ -84,7 +100,9 @@ const ROLE_FOR: Record<Actor['kind'], string> = {
 /** Runs `fn` with the same role + JWT subject PostgREST would set for `actor`. */
 export async function as<T>(db: PGlite, actor: Actor, fn: () => Promise<T>): Promise<T> {
   const sub = actor.kind === 'user' ? actor.id : ''
+  const claims = actor.kind === 'user' ? JSON.stringify({ sub, aal: actor.aal }) : ''
   await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [sub])
+  await db.query(`select set_config('request.jwt.claims', $1, false)`, [claims])
   await db.exec(`set role ${ROLE_FOR[actor.kind]}`)
   try {
     return await fn()

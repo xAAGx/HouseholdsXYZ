@@ -7,30 +7,38 @@ import { toApiError } from './errors'
 
 /**
  * The only code that holds the Supabase secret key (service role), which
- * bypasses Row Level Security. It does three things for parent-managed child
- * accounts, and nothing else:
+ * bypasses Row Level Security. It does four things, and nothing else:
  *   1. create a child's login (the database checks the parent may),
- *   2. turn a one-time sign-in code into a one-time sign-in token,
- *   3. delete a child's login.
- * Approved by the project owner on 2026-09-30 (SECURITY.md). Lint stops every
- * other file from importing this module or creating Supabase clients. Routes
- * must authorize the parent (as themselves, under RLS) before calling it.
+ *   2. turn a child's one-time sign-in code into a one-time sign-in token,
+ *   3. delete a child's login,
+ *   4. delete the signed-in person's own login (after the database has
+ *      checked nothing blocks it).
+ * Approved by the project owner: 1-3 on 2026-09-30, 4 on 2026-10-01
+ * (SECURITY.md). Lint stops every other file from importing this module or
+ * creating Supabase clients. Routes must authorize the caller (as themselves,
+ * under RLS) before calling it.
  */
 
 /** Child logins never receive email. `.invalid` can never resolve (RFC 2606). */
 const CHILD_EMAIL_DOMAIN = 'children.households.invalid'
 
-export interface ChildAccounts {
+export interface AdminAuth {
   /** Creates a child login in the household and returns its id. */
-  create(input: { parentId: string; householdId: string; displayName: string }): Promise<string>
-  /** Uses up a sign-in code. Returns a token hash for verifyOtp, or null. */
-  signIn(code: string): Promise<string | null>
+  createChild(input: {
+    parentId: string
+    householdId: string
+    displayName: string
+  }): Promise<string>
+  /** Uses up a child's sign-in code. Returns a token hash for verifyOtp, or null. */
+  childSignIn(code: string): Promise<string | null>
   /** Deletes a child's login; their profile and memberships go with it. */
-  remove(childId: string): Promise<void>
+  removeChild(childId: string): Promise<void>
+  /** Deletes the caller's own login, once prepare_account_deletion() has run. */
+  deleteAccount(userId: string): Promise<void>
 }
 
-/** Null when SUPABASE_SECRET_KEY isn't set: child accounts are then switched off. */
-export function createChildAccounts(config: AppConfig): ChildAccounts | null {
+/** Null when SUPABASE_SECRET_KEY isn't set: these features are then switched off. */
+export function createAdminAuth(config: AppConfig): AdminAuth | null {
   const secretKey = config.SUPABASE_SECRET_KEY
   if (!secretKey) return null
 
@@ -40,8 +48,13 @@ export function createChildAccounts(config: AppConfig): ChildAccounts | null {
 
   const authFailure = (cause: unknown) => new ApiError('INTERNAL', undefined, undefined, { cause })
 
+  const deleteUser = async (userId: string) => {
+    const { error } = await admin.auth.admin.deleteUser(userId)
+    if (error) throw authFailure(error)
+  }
+
   return {
-    async create({ parentId, householdId, displayName }) {
+    async createChild({ parentId, householdId, displayName }) {
       // The database checks the parent's permission and returns a one-time
       // secret; the new-user trigger turns it into a child profile + membership.
       const { data: secret, error } = await admin.rpc('begin_child_account', {
@@ -60,7 +73,7 @@ export function createChildAccounts(config: AppConfig): ChildAccounts | null {
       return data.user.id
     },
 
-    async signIn(code) {
+    async childSignIn(code) {
       const { data: childId, error } = await admin.rpc('redeem_child_sign_in_code', {
         p_code: code,
       })
@@ -78,9 +91,7 @@ export function createChildAccounts(config: AppConfig): ChildAccounts | null {
       return link.properties.hashed_token
     },
 
-    async remove(childId) {
-      const { error } = await admin.auth.admin.deleteUser(childId)
-      if (error) throw authFailure(error)
-    },
+    removeChild: deleteUser,
+    deleteAccount: deleteUser,
   }
 }

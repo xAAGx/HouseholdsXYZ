@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import { createApp } from './api'
 import { loadConfig } from './config'
-import type { ChildAccounts } from './lib/child-accounts'
+import type { AdminAuth } from './lib/admin-auth'
 import type { Logger } from './lib/logger'
 import type { SupabaseFactory } from './lib/supabase'
 import { MAX_JSON_BODY_BYTES } from './middleware/security'
@@ -43,24 +43,26 @@ const fakeSupabase: SupabaseFactory = {
 
 const VALID_CHILD_CODE = 'K7P4MX2Q'
 
-// Stands in for the secret-key module: one code works, once.
-function fakeChildAccounts(): ChildAccounts {
+// Stands in for the secret-key module: one child code works, once.
+function fakeAdminAuth(): AdminAuth {
   let used = false
+  const unused = () => Promise.reject(new Error('not used in these tests'))
   return {
-    create: () => Promise.reject(new Error('not used in these tests')),
-    signIn: (code) => {
+    createChild: unused,
+    childSignIn: (code) => {
       if (code !== VALID_CHILD_CODE || used) return Promise.resolve(null)
       used = true
       return Promise.resolve('hashed-token')
     },
-    remove: () => Promise.reject(new Error('not used in these tests')),
+    removeChild: unused,
+    deleteAccount: unused,
   }
 }
 
 const app = createApp(config, {
   logger: silentLogger,
   supabase: fakeSupabase,
-  childAccounts: fakeChildAccounts(),
+  adminAuth: fakeAdminAuth(),
 })
 const authed = { Authorization: `Bearer ${VALID_TOKEN}` }
 
@@ -171,7 +173,7 @@ describe('child sign-in', () => {
     const local = createApp(config, {
       logger: silentLogger,
       supabase: fakeSupabase,
-      childAccounts: fakeChildAccounts(),
+      adminAuth: fakeAdminAuth(),
     })
     const res = await signIn(local, 'k7p4-mx2q')
     expect(res.status).toBe(200)
@@ -197,7 +199,7 @@ describe('child sign-in', () => {
     const off = createApp(config, {
       logger: silentLogger,
       supabase: fakeSupabase,
-      childAccounts: null,
+      adminAuth: null,
     })
     expect((await signIn(off, VALID_CHILD_CODE)).status).toBe(503)
   })
@@ -230,6 +232,56 @@ describe('signed-in only routes', () => {
       '/public/households/by-address?country=usa&region=california&city=x&name=Smiths',
     )
     expect(res.status).toBe(422)
+  })
+})
+
+describe('lists, chores and account routes', () => {
+  const HOUSEHOLD = '0d7c4a2e-8f1b-4c3d-9e5f-6a7b8c9d0e1f'
+  const json = (method: string, body: unknown) => ({
+    method,
+    headers: { ...authed, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  it.each([
+    ['GET', `/v1/households/${HOUSEHOLD}/lists`],
+    ['GET', `/v1/households/${HOUSEHOLD}/chores?today=2026-10-01`],
+    ['GET', '/v1/me/export'],
+    ['DELETE', '/v1/me'],
+  ])('%s %s needs a session', async (method, path) => {
+    expect((await app.request(path, { method })).status).toBe(401)
+  })
+
+  it('lists never go public', async () => {
+    const res = await app.request(
+      `/v1/households/${HOUSEHOLD}/lists`,
+      json('POST', { title: 'Open', kind: 'todo', visibility: 'public', memberIds: [] }),
+    )
+    expect(res.status).toBe(422)
+  })
+
+  it('chores need whole points and a real date', async () => {
+    const chore = await app.request(
+      `/v1/households/${HOUSEHOLD}/chores`,
+      json('POST', {
+        title: 'Dishes',
+        points: 1.5,
+        assignedTo: null,
+        repeat: 'daily',
+        needsApproval: true,
+      }),
+    )
+    expect(chore.status).toBe(422)
+    const board = await app.request(`/v1/households/${HOUSEHOLD}/chores?today=yesterday`, {
+      headers: authed,
+    })
+    expect(board.status).toBe(422)
+  })
+
+  it('refuses to delete an account without the secret key configured', async () => {
+    const off = createApp(config, { logger: silentLogger, supabase: fakeSupabase, adminAuth: null })
+    const res = await off.request('/v1/me', { method: 'DELETE', headers: authed })
+    expect(res.status).toBe(503)
   })
 })
 

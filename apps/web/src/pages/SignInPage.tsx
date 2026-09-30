@@ -20,7 +20,7 @@ import { supabase } from '../lib/supabase'
 type Errors = Partial<Record<'email' | 'password' | 'form', string>>
 
 export function SignInPage() {
-  const { status } = useAuth()
+  const { status, needsSecondFactor } = useAuth()
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const returnTo = safeInternalPath(params.get('returnTo'), '/app')
@@ -30,7 +30,13 @@ export function SignInPage() {
   const [errors, setErrors] = useState<Errors>({})
   const [busy, setBusy] = useState(false)
 
-  if (status === 'signed-in') return <Navigate to={returnTo} replace />
+  if (status === 'signed-in') {
+    return needsSecondFactor ? (
+      <Navigate to={`/sign-in/verify?returnTo=${encodeURIComponent(returnTo)}`} replace />
+    ) : (
+      <Navigate to={returnTo} replace />
+    )
+  }
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault()
@@ -53,6 +59,12 @@ export function SignInPage() {
     if (error) {
       const { field, message } = describeAuthError(error)
       setErrors({ [field]: message })
+      return
+    }
+    // With two-step sign-in on, the password is only the first step.
+    const { data: level } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+    if (level?.nextLevel === 'aal2' && level.currentLevel !== 'aal2') {
+      await navigate(`/sign-in/verify?returnTo=${encodeURIComponent(returnTo)}`, { replace: true })
       return
     }
     await navigate(returnTo, { replace: true })

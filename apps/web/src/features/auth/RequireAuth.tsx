@@ -6,7 +6,7 @@ import { useAuth } from './auth-context'
 
 /** Gate for signed-in areas. The real protection is RLS + API auth; this is UX. */
 export function RequireAuth({ children }: { children: ReactNode }) {
-  const { status } = useAuth()
+  const { status, needsSecondFactor } = useAuth()
   const location = useLocation()
 
   if (status === 'loading') {
@@ -20,6 +20,11 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   if (status === 'signed-out') {
     const returnTo = location.pathname + location.search
     return <Navigate to={`/sign-in?returnTo=${encodeURIComponent(returnTo)}`} replace />
+  }
+
+  if (needsSecondFactor) {
+    const returnTo = location.pathname + location.search
+    return <Navigate to={`/sign-in/verify?returnTo=${encodeURIComponent(returnTo)}`} replace />
   }
 
   return children

@@ -15,9 +15,11 @@ Read SECURITY.md and follow its checklist on every change. Non-negotiables:
 - Private by default: households `private`, content `household`, profiles not
   discoverable. Children: never discoverable or public (enforce in SQL, not just UI).
 - The API queries Supabase **as the user** (`c.var.supabase`) so RLS always applies.
-  The one exception is `apps/server/src/lib/child-accounts.ts` (Supabase secret key,
-  approved 2026-09-30) for child logins only; lint keeps it there. Any other use of the
-  secret key needs explicit sign-off.
+  The one exception is `apps/server/src/lib/admin-auth.ts` (Supabase secret key): child
+  logins (approved 2026-09-30) and deleting your own account (2026-10-01); lint keeps it
+  there. Any other use of the secret key needs explicit sign-off.
+- Membership checks go through `private.is_household_member` / `has_household_permission`
+  (they also enforce two-step sign-in). New policies must use them, not raw joins.
 - Never log personal data, household content, tokens or full URLs. Use the logger
   (it redacts); never `console.log` in server code.
 - No `dangerouslySetInnerHTML`, no third-party scripts/CDNs/trackers, no secrets in

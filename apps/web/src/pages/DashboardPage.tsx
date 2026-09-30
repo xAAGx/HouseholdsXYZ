@@ -42,9 +42,14 @@ export function DashboardPage() {
     <>
       <AppHeader
         actions={
-          <Button $variant="ghost" $size="sm" onClick={() => void signOut()}>
-            Sign out
-          </Button>
+          <>
+            <ButtonLink to="/account" $variant="ghost" $size="sm">
+              Account
+            </ButtonLink>
+            <Button $variant="ghost" $size="sm" onClick={() => void signOut()}>
+              Sign out
+            </Button>
+          </>
         }
       />
       <Page>

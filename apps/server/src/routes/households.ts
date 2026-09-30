@@ -1,6 +1,7 @@
 import {
   addChildInputSchema,
   ApiError,
+  transferOwnershipInputSchema,
   createHouseholdInputSchema,
   createInviteInputSchema,
   householdAddressSchema,
@@ -156,7 +157,7 @@ export const householdRoutes = new Hono<AppEnv>()
       .eq('household_id', id)
       .eq('profile.account_type', 'child')
     if (childrenError) throw toApiError(childrenError)
-    if (children.length > 0 && !c.var.childAccounts) {
+    if (children.length > 0 && !c.var.adminAuth) {
       throw new ApiError('UNAVAILABLE', 'Remove the children’s accounts first, then try again.')
     }
 
@@ -170,9 +171,25 @@ export const householdRoutes = new Hono<AppEnv>()
     if (!data) throw new ApiError('FORBIDDEN', 'Only the owner can delete a household.')
 
     // Only the owner gets this far (RLS), and these were this household's children.
-    for (const child of children) await c.var.childAccounts?.remove(child.profile_id)
+    for (const child of children) await c.var.adminAuth?.removeChild(child.profile_id)
     return c.json({ ok: true as const })
   })
+
+  // Hand the household to another adult member; the owner becomes an admin.
+  .post(
+    '/:id/owner',
+    householdParam,
+    zValidator('json', transferOwnershipInputSchema, validationHook),
+    async (c) => {
+      const { id } = c.req.valid('param')
+      const { error } = await c.var.supabase.rpc('transfer_household_ownership', {
+        p_household_id: id,
+        p_new_owner_id: c.req.valid('json').profileId,
+      })
+      if (error) throw toApiError(error)
+      return c.json({ ok: true as const })
+    },
+  )
 
   // ── Members ──────────────────────────────────────────────────────────────
 
@@ -296,12 +313,12 @@ export const householdRoutes = new Hono<AppEnv>()
     householdParam,
     zValidator('json', addChildInputSchema, validationHook),
     async (c) => {
-      const childAccounts = c.var.childAccounts
-      if (!childAccounts) throw new ApiError('UNAVAILABLE', 'Child accounts aren’t set up yet.')
+      const adminAuth = c.var.adminAuth
+      if (!adminAuth) throw new ApiError('UNAVAILABLE', 'Child accounts aren’t set up yet.')
       const { id } = c.req.valid('param')
       const { displayName } = c.req.valid('json')
 
-      const childId = await childAccounts.create({
+      const childId = await adminAuth.createChild({
         parentId: c.var.auth.userId,
         householdId: id,
         displayName,
@@ -338,8 +355,8 @@ export const householdRoutes = new Hono<AppEnv>()
   })
 
   .delete('/:id/children/:childId', childParam, async (c) => {
-    const childAccounts = c.var.childAccounts
-    if (!childAccounts) throw new ApiError('UNAVAILABLE', 'Child accounts aren’t set up yet.')
+    const adminAuth = c.var.adminAuth
+    if (!adminAuth) throw new ApiError('UNAVAILABLE', 'Child accounts aren’t set up yet.')
     const { id, childId } = c.req.valid('param')
 
     // Authorize as the parent, under RLS, before using the secret key.
@@ -350,6 +367,6 @@ export const householdRoutes = new Hono<AppEnv>()
     if (error) throw toApiError(error)
     if (!allowed) throw new ApiError('FORBIDDEN')
 
-    await childAccounts.remove(childId)
+    await adminAuth.removeChild(childId)
     return c.json({ ok: true as const })
   })
