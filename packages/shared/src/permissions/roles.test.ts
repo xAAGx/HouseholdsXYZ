@@ -3,6 +3,7 @@ import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
+import { CHILD_CODE_ALPHABET } from '../children/sign-in-code'
 import { RESERVED_HOUSEHOLD_SLUGS } from '../households/slug'
 import {
   HOUSEHOLD_PERMISSIONS,
@@ -84,5 +85,12 @@ describe('database sync', () => {
       .map(([, slug]) => slug)
       .sort()
     expect([...RESERVED_HOUSEHOLD_SLUGS].sort()).toEqual(sqlSlugs)
+  })
+
+  it('the child sign-in code alphabet matches create_child_sign_in_code', () => {
+    const sqlAlphabet = /c_alphabet constant text := '([A-Z0-9]+)'/.exec(
+      latestMarkedBlock('child-code-alphabet'),
+    )?.[1]
+    expect(CHILD_CODE_ALPHABET).toBe(sqlAlphabet)
   })
 })

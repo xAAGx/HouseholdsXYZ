@@ -68,16 +68,24 @@ export async function createTestDatabase(): Promise<PGlite> {
   return db
 }
 
-export type Actor = { kind: 'anon' } | { kind: 'user'; id: string }
+export type Actor = { kind: 'anon' } | { kind: 'user'; id: string } | { kind: 'service' }
 
 export const anon: Actor = { kind: 'anon' }
 export const user = (id: string): Actor => ({ kind: 'user', id })
+/** The API's secret-key client (child accounts only). */
+export const service: Actor = { kind: 'service' }
+
+const ROLE_FOR: Record<Actor['kind'], string> = {
+  anon: 'anon',
+  user: 'authenticated',
+  service: 'service_role',
+}
 
 /** Runs `fn` with the same role + JWT subject PostgREST would set for `actor`. */
 export async function as<T>(db: PGlite, actor: Actor, fn: () => Promise<T>): Promise<T> {
   const sub = actor.kind === 'user' ? actor.id : ''
   await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [sub])
-  await db.exec(`set role ${actor.kind === 'user' ? 'authenticated' : 'anon'}`)
+  await db.exec(`set role ${ROLE_FOR[actor.kind]}`)
   try {
     return await fn()
   } finally {

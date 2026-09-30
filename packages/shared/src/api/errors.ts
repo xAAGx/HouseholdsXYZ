@@ -13,6 +13,7 @@ export const API_ERROR_STATUS = {
   PAYLOAD_TOO_LARGE: 413,
   RATE_LIMITED: 429,
   INTERNAL: 500,
+  UNAVAILABLE: 503,
 } as const
 
 export type ApiErrorCode = keyof typeof API_ERROR_STATUS
@@ -30,6 +31,7 @@ const DEFAULT_MESSAGES: Record<ApiErrorCode, string> = {
   PAYLOAD_TOO_LARGE: 'That request is too large.',
   RATE_LIMITED: 'Too many requests. Please wait a moment and try again.',
   INTERNAL: 'Something went wrong on our side. Please try again.',
+  UNAVAILABLE: 'This isn’t available right now. Please try again later.',
 }
 
 export interface ValidationIssue {

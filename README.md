@@ -134,10 +134,10 @@ Authentication → Users.
 
 Two Vercel projects from this repo (production branch `main`):
 
-| Project | Root directory | Notes                                                                                          |
-| ------- | -------------- | ---------------------------------------------------------------------------------------------- |
-| web     | `apps/web`     | Env: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_API_URL`                      |
-| api     | `apps/server`  | Env: `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `CORS_ALLOWED_ORIGINS`, `NODE_ENV=production` |
+| Project | Root directory | Notes                                                                                                                                     |
+| ------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| web     | `apps/web`     | Env: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_API_URL`                                                                 |
+| api     | `apps/server`  | Env: `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY` (child logins only), `CORS_ALLOWED_ORIGINS`, `NODE_ENV=production` |
 
 Set `ENABLE_EXPERIMENTAL_COREPACK=1` and Node.js 24.x on both so Vercel uses
 the pinned pnpm, and set the API's function region to match the Supabase

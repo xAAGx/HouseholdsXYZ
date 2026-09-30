@@ -174,6 +174,21 @@ async function main() {
     )
     process.exit(1)
   }
+  let host = ''
+  try {
+    host = new URL(url).hostname
+  } catch {
+    console.error('DATABASE_URL is not a valid URI. Copy it again from Supabase → Connect.')
+    process.exit(1)
+  }
+  if (/^[a-z0-9]+\.supabase\.co$/i.test(host)) {
+    console.error(
+      'DATABASE_URL points at the project API address (<ref>.supabase.co), which does not accept\n' +
+        'database connections. Use Connect → Session pooler: the host looks like\n' +
+        'aws-0-<region>.pooler.supabase.com and the user like postgres.<project-ref>.',
+    )
+    process.exit(1)
+  }
   const isLocal = /@(127\.0\.0\.1|localhost)[:/]/.test(url)
   const { countries, regions, cities, skipped } = await loadSource()
 
@@ -210,11 +225,34 @@ async function main() {
   }
 }
 
+/** Code + message of an error and everything nested in it (connection errors are often an empty AggregateError). */
+function describe(error: unknown): string[] {
+  if (!(error instanceof Error)) return [String(error)]
+  const code = (error as { code?: unknown }).code
+  const own = [typeof code === 'string' ? code : null, error.message].filter(Boolean).join(': ')
+  const inner: unknown[] = error instanceof AggregateError ? error.errors : []
+  const nested = [...inner, ...(error.cause ? [error.cause] : [])].flatMap(describe)
+  return [own || error.name, ...nested]
+}
+
+const HINTS: [RegExp, string][] = [
+  [/ENOTFOUND|EAI_AGAIN/, 'The host name in DATABASE_URL was not found. Copy the URI again.'],
+  [
+    /ETIMEDOUT|ENETUNREACH|EHOSTUNREACH|ECONNREFUSED/,
+    'Could not reach the database. Use the Session pooler URI (Connect → Session pooler); the direct connection is IPv6-only.',
+  ],
+  [/28P01|password authentication failed/, 'Wrong database password in DATABASE_URL.'],
+  [/Tenant or user not found/, 'The user must be postgres.<project-ref> for the pooler.'],
+  [/42P01|does not exist/, 'Tables are missing. Run `pnpm db:push` first.'],
+]
+
 main().catch((error: unknown) => {
   // Report the problem without echoing connection details.
-  const message = error instanceof Error ? error.message : String(error)
-  console.error(
-    `\nPlace import failed: ${message.replace(/postgres(ql)?:\/\/\S+/g, '[database url]')}`,
+  const lines = describe(error).map((line) =>
+    line.replace(/postgres(ql)?:\/\/\S+/g, '[database url]'),
   )
+  const text = lines.join('\n')
+  const hint = HINTS.find(([pattern]) => pattern.test(text))?.[1]
+  console.error(`\nPlace import failed:\n  ${lines.join('\n  ')}${hint ? `\n\n${hint}` : ''}`)
   process.exit(1)
 })

@@ -1,6 +1,11 @@
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[]
 
 export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: '14.18'
+  }
   public: {
     Tables: {
       account_details: {
@@ -32,7 +37,7 @@ export type Database = {
           {
             foreignKeyName: 'account_details_profile_id_fkey'
             columns: ['profile_id']
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: 'profiles'
             referencedColumns: ['id']
           },
@@ -169,6 +174,64 @@ export type Database = {
           },
         ]
       }
+      household_invites: {
+        Row: {
+          accepted_at: string | null
+          accepted_by: string | null
+          created_at: string
+          created_by: string | null
+          expires_at: string
+          household_id: string
+          id: string
+          role: Database['public']['Enums']['household_role']
+          token_hash: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          created_at?: string
+          created_by?: string | null
+          expires_at: string
+          household_id: string
+          id?: string
+          role: Database['public']['Enums']['household_role']
+          token_hash: string
+        }
+        Update: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string
+          household_id?: string
+          id?: string
+          role?: Database['public']['Enums']['household_role']
+          token_hash?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'household_invites_accepted_by_fkey'
+            columns: ['accepted_by']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'household_invites_created_by_fkey'
+            columns: ['created_by']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'household_invites_household_id_fkey'
+            columns: ['household_id']
+            isOneToOne: false
+            referencedRelation: 'households'
+            referencedColumns: ['id']
+          },
+        ]
+      }
       household_members: {
         Row: {
           created_at: string
@@ -273,7 +336,7 @@ export type Database = {
           id?: string
           name: string
           slug: string
-          slug_key?: never
+          slug_key?: string | null
           updated_at?: string
           visibility?: Database['public']['Enums']['household_visibility']
         }
@@ -287,7 +350,7 @@ export type Database = {
           id?: string
           name?: string
           slug?: string
-          slug_key?: never
+          slug_key?: string | null
           updated_at?: string
           visibility?: Database['public']['Enums']['household_visibility']
         }
@@ -353,17 +416,74 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      accept_household_invite: { Args: { p_token: string }; Returns: string }
+      begin_child_account: {
+        Args: { p_display_name: string; p_household_id: string; p_parent_id: string }
+        Returns: string
+      }
+      can_manage_child: {
+        Args: { p_child_id: string; p_household_id: string }
+        Returns: boolean
+      }
+      create_child_sign_in_code: {
+        Args: { p_child_id: string; p_household_id: string }
+        Returns: {
+          code_expires_at: string
+          sign_in_code: string
+        }[]
+      }
       create_household: {
         Args: { p_city_id: number; p_name: string; p_slug: string }
         Returns: string
+      }
+      create_household_invite: {
+        Args: {
+          p_household_id: string
+          p_role: Database['public']['Enums']['household_role']
+        }
+        Returns: {
+          invite_expires_at: string
+          invite_id: string
+          invite_token: string
+        }[]
+      }
+      get_household_invite: {
+        Args: { p_token: string }
+        Returns: {
+          already_member: boolean
+          city_name: string
+          country_code: string
+          household_name: string
+          invite_expires_at: string
+          invite_role: Database['public']['Enums']['household_role']
+          invited_by: string
+          region_name: string
+        }[]
       }
       my_household_permissions: {
         Args: { p_household_id: string }
         Returns: Database['public']['Enums']['household_permission'][]
       }
+      redeem_child_sign_in_code: { Args: { p_code: string }; Returns: string }
       resolve_household_address: {
-        Args: { p_city: string; p_country: string; p_name: string; p_region: string }
-        Returns: { household_id: string; is_current: boolean }[]
+        Args: {
+          p_city: string
+          p_country: string
+          p_name: string
+          p_region: string
+        }
+        Returns: {
+          household_id: string
+          is_current: boolean
+        }[]
+      }
+      set_household_member_role: {
+        Args: {
+          p_household_id: string
+          p_profile_id: string
+          p_role: Database['public']['Enums']['household_role']
+        }
+        Returns: undefined
       }
     }
     Enums: {
@@ -408,7 +528,9 @@ export type Tables<
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Views'])
     : never) = never,
-> = DefaultSchemaTableNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
   ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'] &
       DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Views'])[TableName] extends {
       Row: infer R
@@ -431,7 +553,9 @@ export type TablesInsert<
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables']
     : never) = never,
-> = DefaultSchemaTableNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
   ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'][TableName] extends {
       Insert: infer I
     }
@@ -453,7 +577,9 @@ export type TablesUpdate<
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables']
     : never) = never,
-> = DefaultSchemaTableNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
   ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'][TableName] extends {
       Update: infer U
     }
@@ -475,7 +601,9 @@ export type Enums<
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions['schema']]['Enums']
     : never) = never,
-> = DefaultSchemaEnumNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
   ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions['schema']]['Enums'][EnumName]
   : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema['Enums']
     ? DefaultSchema['Enums'][DefaultSchemaEnumNameOrOptions]
@@ -489,7 +617,9 @@ export type CompositeTypes<
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions['schema']]['CompositeTypes']
     : never) = never,
-> = PublicCompositeTypeNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
   ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions['schema']]['CompositeTypes'][CompositeTypeName]
   : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema['CompositeTypes']
     ? DefaultSchema['CompositeTypes'][PublicCompositeTypeNameOrOptions]

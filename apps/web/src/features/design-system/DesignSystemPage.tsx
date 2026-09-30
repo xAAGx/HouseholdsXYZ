@@ -10,7 +10,10 @@ import {
   CardTitle,
   Checkbox,
   Chip,
+  CodeDisplay,
   Combobox,
+  ConfirmButton,
+  CopyField,
   Container,
   Eyebrow,
   FieldGroup,
@@ -33,6 +36,7 @@ import {
   StatusDot,
   StatusText,
   Text,
+  TextArea,
   TextField,
 } from '../../components/ui'
 
@@ -230,6 +234,36 @@ export function DesignSystemPage() {
             <Checkbox defaultChecked>
               I agree to the <a href="#terms">Terms of Service</a>.
             </Checkbox>
+            <Grid $columns={2} $gap={5}>
+              <TextArea
+                label="About your household"
+                defaultValue="Two adults, one teenager and a very loud cat."
+                hint="Optional. Shown on the public page."
+              />
+              <CopyField
+                label="Invite link"
+                value="https://households.xyz/invite#4f9c2e…"
+                hint="Works once, for 7 days."
+              />
+            </Grid>
+          </Block>
+
+          <Block
+            title="One-time codes & confirmations"
+            note="Codes use the body face. Destructive actions always ask first."
+          >
+            <Grid $columns={2} $gap={5}>
+              <CodeDisplay code="K7P4-MX2Q" />
+              <Stack $align="start">
+                <ConfirmButton
+                  message="Sam will lose access to this household. You can invite them again later."
+                  confirmLabel="Yes, remove Sam"
+                  onConfirm={() => undefined}
+                >
+                  Remove from household
+                </ConfirmButton>
+              </Stack>
+            </Grid>
           </Block>
         </Body>
       </Container>

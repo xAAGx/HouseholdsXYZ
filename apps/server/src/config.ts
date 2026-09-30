@@ -36,6 +36,16 @@ const configSchema = z
         (key) => !isPrivilegedSupabaseKey(key),
         'is a secret/service_role key. User requests must go through RLS: use the publishable key.',
       ),
+    // Bypasses RLS. Used only by lib/child-accounts.ts (parent-managed child
+    // logins); without it, child accounts are switched off.
+    SUPABASE_SECRET_KEY: z
+      .string()
+      .optional()
+      .transform((key) => key || undefined)
+      .refine(
+        (key) => key === undefined || isPrivilegedSupabaseKey(key),
+        'must be the project secret key (sb_secret_…), or left unset',
+      ),
     CORS_ALLOWED_ORIGINS: originList,
     LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   })

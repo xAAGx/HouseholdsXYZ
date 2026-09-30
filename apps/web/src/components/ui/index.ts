@@ -8,7 +8,10 @@ export { Card, CardList } from './Card'
 export type { CardProps, CardVariant } from './Card'
 export { Checkbox } from './Checkbox'
 export { Chip, NameTag, Pill, PointsBadge, StatusDot, StatusText } from './chips'
+export { CodeDisplay } from './CodeDisplay'
 export { Combobox } from './Combobox'
+export { ConfirmButton } from './ConfirmButton'
+export { CopyField } from './CopyField'
 export { ErrorText } from './ErrorText'
 export { FieldGroup } from './FieldGroup'
 export { IconChip } from './IconChip'
@@ -16,6 +19,7 @@ export { Container, Grid, Page, Row, Section, SectionHeader, Stack } from './lay
 export { Logo } from './Logo'
 export { PasswordField } from './PasswordField'
 export { Select } from './Select'
+export { TextArea } from './TextArea'
 export { TextField } from './TextField'
 export {
   CardTitle,

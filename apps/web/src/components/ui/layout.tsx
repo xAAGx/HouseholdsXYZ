@@ -80,10 +80,14 @@ export const Grid = styled.div<{ $columns?: 2 | 3 | 4; $gap?: Gap }>`
   }
 `
 
-/** Page wrapper for app screens (signed-in areas, forms, errors). */
-export const Page = styled.main<{ $narrow?: boolean }>`
+/**
+ * Page wrapper for app screens (signed-in areas, forms, errors). `$narrow`
+ * (480px) for one short form, `$medium` (720px) for a column of form sections.
+ */
+export const Page = styled.main<{ $narrow?: boolean; $medium?: boolean }>`
   ${container};
-  max-width: ${({ $narrow, theme }) => ($narrow ? 480 : theme.layout.containerMax)}px;
+  max-width: ${({ $narrow, $medium, theme }) =>
+    $narrow ? 480 : $medium ? 720 : theme.layout.containerMax}px;
   padding-top: ${({ theme }) => theme.space[7]}px;
   padding-bottom: ${({ theme }) => theme.space[9]}px;
 `

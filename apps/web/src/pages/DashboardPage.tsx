@@ -20,15 +20,23 @@ import {
 } from '../components/ui'
 import { useAuth } from '../features/auth/auth-context'
 import { useMyHouseholds } from '../features/households/queries'
+import { pendingInvite } from '../features/invites/pending-invite'
+import { useMe } from '../features/profile/queries'
 
 const tones: Accent[] = ['yellow', 'sky', 'grass', 'grape', 'coral']
 
 export function DashboardPage() {
   const { signOut } = useAuth()
   const households = useMyHouseholds()
+  const me = useMe()
+  const isChild = me.data?.accountType === 'child'
 
+  // Someone who opened an invite link before signing up finishes joining first.
+  if (pendingInvite() && !isChild) return <Navigate to="/invite" replace />
   // New accounts go straight to setting up their first household.
-  if (households.data?.length === 0) return <Navigate to="/households/new" replace />
+  if (households.data?.length === 0 && me.data && !isChild) {
+    return <Navigate to="/households/new" replace />
+  }
 
   return (
     <>
@@ -42,16 +50,21 @@ export function DashboardPage() {
       <Page>
         <Stack $gap={6}>
           <Header>
-            <PageTitle>Your households</PageTitle>
-            <ButtonLink to="/households/new" $variant="secondary" $size="sm">
-              Create a household
-            </ButtonLink>
+            <PageTitle>{isChild ? 'Your household' : 'Your households'}</PageTitle>
+            {me.data && !isChild && (
+              <ButtonLink to="/households/new" $variant="secondary" $size="sm">
+                Create a household
+              </ButtonLink>
+            )}
           </Header>
 
           <Card $variant="plain" $padding="md">
             {households.isPending && <Muted>Loading…</Muted>}
             {households.isError && (
               <Text>We couldn’t load your households. Please try again in a moment.</Text>
+            )}
+            {households.data?.length === 0 && (
+              <Text>You’re not in a household right now. Ask a parent to add you.</Text>
             )}
             {households.data && households.data.length > 0 && (
               <HouseholdList>

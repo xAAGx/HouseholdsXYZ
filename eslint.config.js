@@ -15,6 +15,13 @@ const NO_RAW_HTML = {
     'Rendering raw HTML enables XSS, which would expose sessions and household data. Render text, or get a security review for a sanitizer.',
 }
 
+const SUPABASE_CREATE_CLIENT = {
+  name: '@supabase/supabase-js',
+  importNames: ['createClient'],
+  message:
+    'Only apps/server/src/lib/child-accounts.ts may create a Supabase client directly. Use lib/supabase.ts (acts as the user, under RLS).',
+}
+
 // Design-system guardrails (DESIGN.md): UI code takes colors and fonts from the
 // theme, so the brand can't drift one hard-coded value at a time.
 const DESIGN_TOKENS_ONLY = [
@@ -144,6 +151,35 @@ export default defineConfig(
   {
     files: ['apps/mobile/**/*.{ts,tsx}'],
     extends: [reactHooks.configs.flat['recommended-latest']],
+  },
+
+  // ── Server: keep the Supabase secret key in one module (SECURITY.md) ───────
+  // Only lib/child-accounts.ts creates a client with the secret key; only
+  // api.ts wires it up. Everything else talks to Supabase as the user, via
+  // lib/supabase.ts, so RLS always applies.
+  {
+    files: ['apps/server/src/**/*.ts'],
+    ignores: ['apps/server/src/lib/child-accounts.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [SUPABASE_CREATE_CLIENT],
+          patterns: [
+            {
+              group: ['**/child-accounts'],
+              allowTypeImports: true,
+              message:
+                'The secret-key module is wired up once, in api.ts. Routes use c.var.childAccounts.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['apps/server/src/api.ts'],
+    rules: { 'no-restricted-imports': ['error', { paths: [SUPABASE_CREATE_CLIENT] }] },
   },
 
   // ── Server & tooling ──────────────────────────────────────────────────────

@@ -22,6 +22,17 @@ export const ROLE_LABELS: Record<HouseholdRole, string> = {
   guest: 'Guest',
 }
 
+/** One line per role, shown when choosing a role for an invite or a member. */
+export const ROLE_DESCRIPTIONS: Record<HouseholdRole, string> = {
+  owner: 'Created the household. Can do everything, including deleting it.',
+  admin: 'Runs the household with you: settings, members and children’s accounts.',
+  adult: 'A grown-up at home: invites people and helps with chores, calendar and expenses.',
+  caregiver: 'A sitter, nanny or helper: helps with chores and the calendar.',
+  guest: 'Sees the household, but can’t change anything.',
+  teen: 'A teenager with a parent-managed account.',
+  child: 'A child with a parent-managed account.',
+}
+
 export const PERMISSION_LABELS: Record<HouseholdPermission, string> = {
   manage_household: 'Edit household profile & settings',
   invite_members: 'Invite members',

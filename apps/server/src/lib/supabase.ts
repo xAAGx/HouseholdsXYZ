@@ -12,19 +12,21 @@ const statelessAuth = {
 export interface SupabaseFactory {
   /** Verifies access tokens. Holds no user session and is never used for data. */
   readonly verifier: HouseholdsSupabaseClient
+  /** For signed-out visitors: the anon role, so RLS shows only public data. */
+  readonly anonymous: HouseholdsSupabaseClient
   /** A client acting as the given user, so every query is filtered by RLS. */
   forUser(accessToken: string): HouseholdsSupabaseClient
 }
 
 /**
- * There is deliberately no service-role ("admin") client here. Adding one is a
- * security-review decision: it bypasses RLS, so it must live in a dedicated
- * module, be used only for narrowly scoped jobs, and never for user requests.
+ * Clients that always go through RLS. The only service-role ("admin") client
+ * lives in lib/child-accounts.ts, limited to child logins (see SECURITY.md).
  */
 export function createSupabaseFactory(config: AppConfig): SupabaseFactory {
   const base = { url: config.SUPABASE_URL, publishableKey: config.SUPABASE_PUBLISHABLE_KEY }
   return {
     verifier: createPublicClient({ ...base, options: { auth: statelessAuth } }),
+    anonymous: createPublicClient({ ...base, options: { auth: statelessAuth } }),
     forUser: (accessToken) =>
       createPublicClient({
         ...base,

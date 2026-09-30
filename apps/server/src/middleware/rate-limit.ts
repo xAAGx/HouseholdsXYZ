@@ -60,3 +60,13 @@ export function rateLimit({ store, limit, windowMs, key, name }: RateLimitOption
     await next()
   })
 }
+
+/**
+ * The caller's IP, for rate-limit keys on signed-out routes only. It stays in
+ * this instance's memory and is never logged. Vercel sets x-real-ip itself.
+ */
+export function clientIp(c: Context<AppEnv>): string {
+  return (
+    c.req.header('x-real-ip') ?? c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  )
+}

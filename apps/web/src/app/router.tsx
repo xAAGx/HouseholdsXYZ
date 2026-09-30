@@ -8,10 +8,13 @@ import { NotFoundPage } from '../pages/NotFoundPage'
 import {
   AuthConfirmPage,
   AuthLayout,
+  ChildSignInPage,
   DashboardPage,
   DesignSystemPage,
   ForgotPasswordPage,
   HouseholdPage,
+  HouseholdSettingsPage,
+  InvitePage,
   NewHouseholdPage,
   ResetPasswordPage,
   SignInPage,
@@ -35,12 +38,18 @@ export const router = createBrowserRouter([
       { path: '/', element: <HomePage /> },
       { path: '/terms', element: <LegalPage title="Terms of Service" /> },
       { path: '/privacy', element: <LegalPage title="Privacy Policy" /> },
-      // Household addresses: /us/california/san-francisco/TheSmiths
-      { path: '/:country/:region/:city/:name', element: <HouseholdPage /> },
       {
         element: <AuthLayout />,
         children: [
+          // Household addresses: /us/california/san-francisco/TheSmiths
+          { path: '/:country/:region/:city/:name', element: <HouseholdPage /> },
+          {
+            path: '/:country/:region/:city/:name/settings',
+            element: signedIn(<HouseholdSettingsPage />),
+          },
+          { path: '/invite', element: <InvitePage /> },
           { path: '/sign-in', element: <SignInPage /> },
+          { path: '/sign-in/child', element: <ChildSignInPage /> },
           { path: '/sign-up', element: <SignUpPage /> },
           { path: '/forgot-password', element: <ForgotPasswordPage /> },
           { path: '/reset-password', element: <ResetPasswordPage /> },

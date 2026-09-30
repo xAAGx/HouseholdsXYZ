@@ -1,9 +1,10 @@
-import { useNavigate } from 'react-router'
+import { Navigate, useNavigate } from 'react-router'
 
 import { CardPage } from '../components/app/CardPage'
-import { Muted, Text } from '../components/ui'
+import { ButtonLink, Muted, Text } from '../components/ui'
 import { CreateHouseholdForm } from '../features/households/CreateHouseholdForm'
 import { useMyHouseholds } from '../features/households/queries'
+import { pendingInvite } from '../features/invites/pending-invite'
 import { locationFromPlace } from '../features/places/location'
 import { useMe } from '../features/profile/queries'
 
@@ -33,6 +34,22 @@ export function NewHouseholdPage() {
     )
   }
 
+  if (me.data.accountType === 'child') {
+    return (
+      <CardPage
+        title="Households are set up by parents"
+        intro="Ask a parent if you’d like to be added to another household."
+      >
+        <ButtonLink to="/app" $variant="secondary">
+          Go to your household
+        </ButtonLink>
+      </CardPage>
+    )
+  }
+
+  // Finish joining the household they were invited to before starting a new one.
+  if (pendingInvite()) return <Navigate to="/invite" replace />
+
   const isFirst = households.data.length === 0
   const firstName = me.data.firstName
 
@@ -53,7 +70,7 @@ export function NewHouseholdPage() {
         onCreated={() => void navigate('/app', { replace: true })}
       />
       <Muted>
-        Joining a household someone else set up? Ask them to send you an invite link instead.
+        Joining a household someone else set up? Open the invite link they sent you instead.
       </Muted>
     </CardPage>
   )

@@ -15,7 +15,9 @@ Read SECURITY.md and follow its checklist on every change. Non-negotiables:
 - Private by default: households `private`, content `household`, profiles not
   discoverable. Children: never discoverable or public (enforce in SQL, not just UI).
 - The API queries Supabase **as the user** (`c.var.supabase`) so RLS always applies.
-  There is no service-role client. Adding one needs explicit sign-off.
+  The one exception is `apps/server/src/lib/child-accounts.ts` (Supabase secret key,
+  approved 2026-09-30) for child logins only; lint keeps it there. Any other use of the
+  secret key needs explicit sign-off.
 - Never log personal data, household content, tokens or full URLs. Use the logger
   (it redacts); never `console.log` in server code.
 - No `dangerouslySetInnerHTML`, no third-party scripts/CDNs/trackers, no secrets in

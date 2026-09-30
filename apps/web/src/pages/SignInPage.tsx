@@ -3,7 +3,15 @@ import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router'
 import styled from 'styled-components'
 
-import { Button, ErrorText, PasswordField, Stack, TextField } from '../components/ui'
+import {
+  Button,
+  ButtonLink,
+  ErrorText,
+  Muted,
+  PasswordField,
+  Stack,
+  TextField,
+} from '../components/ui'
 import { CardPage } from '../components/app/CardPage'
 import { useAuth } from '../features/auth/auth-context'
 import { describeAuthError } from '../features/auth/errors'
@@ -86,9 +94,24 @@ export function SignInPage() {
           </Button>
         </Stack>
       </form>
+      <Alternative>
+        <Muted>Children sign in with a code from a parent, no email needed.</Muted>
+        <ButtonLink to="/sign-in/child" $variant="secondary" $fullWidth>
+          Child sign in
+        </ButtonLink>
+      </Alternative>
     </CardPage>
   )
 }
+
+const Alternative = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: ${({ theme }) => theme.space[3]}px;
+  padding-top: ${({ theme }) => theme.space[5]}px;
+  border-top: ${({ theme }) => theme.borderWidths.hairline}px solid
+    ${({ theme }) => theme.colors.hairline};
+`
 
 const Forgot = styled(Link)`
   align-self: flex-start;

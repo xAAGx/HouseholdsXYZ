@@ -25,6 +25,10 @@ export function toApiError(error: PostgrestError): ApiError {
       return new ApiError('FORBIDDEN', undefined, undefined, { cause: error })
     case '23505': // unique_violation
       return new ApiError('CONFLICT', undefined, undefined, { cause: error })
+    case '22023': // invalid_parameter_value (our RPCs' input checks)
+      return new ApiError('VALIDATION_FAILED', 'Some values aren’t allowed.', undefined, {
+        cause: error,
+      })
     case '23514': // check_violation (includes reserved slugs)
       return new ApiError('VALIDATION_FAILED', 'Some values aren’t allowed.', undefined, {
         cause: error,
@@ -33,6 +37,7 @@ export function toApiError(error: PostgrestError): ApiError {
       return new ApiError('CONFLICT', 'You’ve reached the limit for this.', undefined, {
         cause: error,
       })
+    case 'P0002': // no_data_found (e.g. an invite link that's used up or expired)
     case 'PGRST116': // .single() found no row, or a row RLS hides
       return new ApiError('NOT_FOUND', undefined, undefined, { cause: error })
     default:

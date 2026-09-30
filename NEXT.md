@@ -1,9 +1,9 @@
 # Next session: read this first
 
-Updated 2026-09-30: sign-up, places and household addresses built; moving to
-hosted Supabase + Vercel.
+Updated 2026-09-30: household page, invite links and parent-managed child
+accounts built (not yet pushed to the database or committed).
 
-## Decisions so far (2026-09-29, with the user)
+## Decisions so far (with the user)
 
 - **Household URL:** `households.xyz/<country>/<state>/<city>/<house-name>`, e.g.
   `/us/california/san-francisco/TheSmiths`. Country = lowercase ISO code; state
@@ -19,68 +19,67 @@ hosted Supabase + Vercel.
   profile and location data. Children: never discoverable, never public, no self
   sign-up, no location, parent-managed.
 - **Infrastructure (2026-09-30):** no Docker. **One** hosted Supabase project for
-  local dev and production (user's choice over separate dev/prod). Email links
-  use `{{ .RedirectTo }}` so local dev gets localhost links. Accepted trade-offs:
-  test accounts sit beside real users, `db:push` goes straight to production,
-  `http://localhost:5180` stays on the redirect allowlist. Two Vercel projects
-  (web, API). Revisit a separate dev project once there are real users.
+  local dev and production. Email links use `{{ .RedirectTo }}`. Accepted
+  trade-offs: test accounts sit beside real users, `db:push` goes straight to
+  production, `http://localhost:5180` stays on the redirect allowlist. API on
+  Vercel (`householdsxyz-server.vercel.app`); the web app will be hosted
+  elsewhere (not decided).
+- **Children (2026-09-30):** parent-managed accounts. A parent adds a child from
+  the household page ("Add a child account") and shows a one-time code; the
+  child uses "Child sign in" on the sign-in page. The user approved the
+  Supabase **secret key** in the API for this, scoped to
+  `apps/server/src/lib/child-accounts.ts` (create login, code → token, delete).
 
-## Done in this session (not committed yet)
+## Done, uncommitted: household page, invites, children
 
-- Migration `20260929180000_places_signup_household_address.sql`: `geo_*`
-  tables, name/city on `profiles`, owner-only `account_details` (date of birth,
-  phone), sign-up validated in `private.handle_new_user()` (strips date of birth,
-  phone and city from `raw_user_meta_data` so they never ride in JWTs), per-city
-  household slugs, `household_address_history` + `resolve_household_address()`,
-  `create_household(name, slug, city_id)`. 52 RLS tests.
-- `scripts/geo-import.ts` (`pnpm geo:import`, needs `DATABASE_URL`).
-- Shared: `auth/schemas.ts` (sign-up/in/reset, password rules, 18+, phone to
-  E.164), `geo/places.ts`, `householdPath(place, slug)`.
-- API: `/v1/me` and `/v1/households` return `place`; creating needs `cityId`.
-- Web: `/sign-up`, `/sign-in`, `/forgot-password`, `/reset-password`,
-  `/auth/confirm`, `/households/new` (onboarding, city pre-filled), dashboard
-  redirects there when empty, household route `/:country/:region/:city/:name`,
-  placeholder `/terms` and `/privacy`. New UI: `Select`, `Combobox`,
-  `PasswordField`, `Checkbox`, `FieldGroup`, `CardPage`, `LocationPicker`.
-- Bundle: the phone library (`auth/phone.ts`) only loads with the auth pages,
-  and the household page is lazy. Entry chunk 629 kB → 334 kB (104 kB gzip).
-- `scripts/` has a tsconfig; `pnpm check` now typechecks the importer too.
-- Email templates in `supabase/templates/` (token-hash links to
-  `{{ .RedirectTo }}/auth/confirm`, work on any device; password-changed
-  notice). Link expiry now 1 hour.
-- DB scripts moved off Docker: `db:push`, `db:types` (`--linked`), `db:lint`
-  (`--linked`); `db:start/stop/reset/setup` removed. README "Supabase setup"
-  has the dashboard checklist.
+- Migration `20260930120000_members_invites_children.sql`: invite links
+  (hashed tokens, 7 days, single use, adults only, owner-only admin invites),
+  `set_household_member_role`, account type ↔ role guard (children only
+  child/teen), children can't edit their profile, child set-up secrets redeemed
+  by `handle_new_user`, child sign-in codes (8 chars, 10 min, single use,
+  redeemable only by the service role). 83 RLS tests.
+- API: `GET /v1/households/by-address` (member view / public / moved),
+  `PATCH /:id`, `PUT /:id/address`, `DELETE /:id` (also deletes its children's
+  accounts), leave, member roles and removal, invites (list, create, revoke),
+  `/v1/invites/preview|accept` (token in body), children (add, code, delete),
+  `GET /public/households/by-address`, `POST /auth/child-sign-in` (10/min/IP).
+- Web: household home (members, invites, add child, coming-soon tiles),
+  settings page (details, address, visibility, leave, delete), `/invite#token`
+  (survives sign-up via localStorage), `/sign-in/child`, "Child sign in" on the
+  sign-in page. New UI: `CopyField`, `CodeDisplay`, `TextArea`, `ConfirmButton`.
+
+## To make it work on the real project (user)
+
+1. `pnpm db:push`, then `pnpm db:types` (check the diff against the hand-written
+   types).
+2. Add `SUPABASE_SECRET_KEY` (Supabase → Project Settings → API Keys → secret
+   key) to `apps/server/.env` and to the Vercel API project; redeploy.
+3. Try: add a child, show the code, sign in as the child in a private window.
+   Unverified against real Supabase: that GoTrue accepts the
+   `@children.households.invalid` email for admin-created users, and that
+   `generateLink` + `verifyOtp(type 'email')` gives the child a session.
 
 ## Next: pick one with the user
 
-1. **Household page** at `/:country/:region/:city/:name`: call
-   `resolve_household_address`; if `is_current` is false, redirect to the
-   current address. Show members' view vs public profile. Private and missing
-   must stay identical.
-2. **Invites** ("I have an invite" in onboarding): invite links with expiry,
-   role, single use; accepting needs an account.
-3. **Children:** parent-managed child profiles. They can't use sign-up (the
-   new-user trigger requires adult details), so they need their own
-   server-side path. Needs a design decision: do children ever log in?
-4. **Account settings:** change name, phone (re-verify), email, password, MFA.
-5. **Legal pages:** real Terms of Service and Privacy Policy before launch
-   (sign-up links to the placeholders).
+1. **Account settings:** change name, phone (re-verify), email, password, MFA.
+2. **First feature (Lists)**, setting the pattern for content visibility and
+   children's RLS.
+3. **Ownership transfer** (owners can't leave today; they can only delete).
+4. **Web hosting:** pick a host, replicate the security headers and CSP from
+   `apps/web/vercel.json`, set `CORS_ALLOWED_ORIGINS` on the API.
+5. **Legal pages** and **custom SMTP** before real users.
 
 Still to discuss: a public household page never lists members or children, but
 in small towns city + family name can identify a household. Extra rule?
 
 ## Setup status on the user's machine
 
-- pnpm 12.6.0 at `%LOCALAPPDATA%\pnpm\bin` (restart VS Code if `pnpm` still
-  resolves to an old copy). Node 22.16 (24 recommended).
-- `apps/web/.env` has a publishable key. `apps/server/.env` needs
-  `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` (same values as the web `.env`).
-- Hosted setup in progress (user creating the Supabase and Vercel projects):
-  follow README "Supabase setup" and "Deploying". Not yet known: whether the
-  user owns `households.xyz`. If not, add the API's vercel.app URL to
-  `connect-src` in `apps/web/vercel.json`.
-- The new migration hasn't run on real Supabase yet (only PGlite). First
-  `pnpm db:push` + a real sign-up is its first real test.
-- Git: scaffold committed on branch `initial-scaffold` (not merged or pushed;
-  remote github.com/xAAGx/HouseholdsXYZ). This session's work is uncommitted.
+- pnpm 12.6.0 at `%LOCALAPPDATA%\pnpm\bin`. Node 22.16 (24 recommended).
+- Root `.env` holds `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`,
+  `DATABASE_URL` for the repo scripts (never the apps). Project linked; first
+  migrations pushed, places imported.
+- `apps/server/.env` must keep `NODE_ENV=development` locally (production mode
+  rejects the localhost CORS origin).
+- Git: `initial-scaffold` and `main` pushed to github.com/xAAGx/HouseholdsXYZ at
+  `bda760c`. Uncommitted since then: importer error messages, regenerated types,
+  and everything in "Done, uncommitted" above.

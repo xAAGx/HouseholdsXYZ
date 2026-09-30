@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import { createApp } from './api'
 import { loadConfig } from './config'
+import type { ChildAccounts } from './lib/child-accounts'
 import type { Logger } from './lib/logger'
 import type { SupabaseFactory } from './lib/supabase'
 import { MAX_JSON_BODY_BYTES } from './middleware/security'
@@ -36,10 +37,31 @@ const fakeSupabase: SupabaseFactory = {
         ),
     },
   } as unknown as HouseholdsSupabaseClient,
+  anonymous: {} as HouseholdsSupabaseClient,
   forUser: () => ({}) as HouseholdsSupabaseClient,
 }
 
-const app = createApp(config, { logger: silentLogger, supabase: fakeSupabase })
+const VALID_CHILD_CODE = 'K7P4MX2Q'
+
+// Stands in for the secret-key module: one code works, once.
+function fakeChildAccounts(): ChildAccounts {
+  let used = false
+  return {
+    create: () => Promise.reject(new Error('not used in these tests')),
+    signIn: (code) => {
+      if (code !== VALID_CHILD_CODE || used) return Promise.resolve(null)
+      used = true
+      return Promise.resolve('hashed-token')
+    },
+    remove: () => Promise.reject(new Error('not used in these tests')),
+  }
+}
+
+const app = createApp(config, {
+  logger: silentLogger,
+  supabase: fakeSupabase,
+  childAccounts: fakeChildAccounts(),
+})
 const authed = { Authorization: `Bearer ${VALID_TOKEN}` }
 
 describe('baseline security headers', () => {
@@ -137,6 +159,80 @@ describe('input handling', () => {
   })
 })
 
+describe('child sign-in', () => {
+  const signIn = (target: ReturnType<typeof createApp>, code: string, ip = '203.0.113.7') =>
+    target.request('/auth/child-sign-in', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Real-IP': ip },
+      body: JSON.stringify({ code }),
+    })
+
+  it('exchanges a valid code (typed any way) for a one-time token, once', async () => {
+    const local = createApp(config, {
+      logger: silentLogger,
+      supabase: fakeSupabase,
+      childAccounts: fakeChildAccounts(),
+    })
+    const res = await signIn(local, 'k7p4-mx2q')
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ tokenHash: 'hashed-token' })
+    expect(res.headers.get('cache-control')).toBe('no-store')
+    expect((await signIn(local, VALID_CHILD_CODE)).status).toBe(401)
+  })
+
+  it('rejects malformed codes before reaching the database', async () => {
+    const res = await signIn(app, 'IO01IO01', '203.0.113.8')
+    expect(res.status).toBe(422)
+  })
+
+  it('limits attempts per client', async () => {
+    const statuses: number[] = []
+    for (let i = 0; i < 12; i++)
+      statuses.push((await signIn(app, 'ABCDEFGH', '203.0.113.9')).status)
+    expect(statuses.slice(0, 10).every((s) => s === 401)).toBe(true)
+    expect(statuses.at(-1)).toBe(429)
+  })
+
+  it('is switched off without the secret key', async () => {
+    const off = createApp(config, {
+      logger: silentLogger,
+      supabase: fakeSupabase,
+      childAccounts: null,
+    })
+    expect((await signIn(off, VALID_CHILD_CODE)).status).toBe(503)
+  })
+})
+
+describe('signed-in only routes', () => {
+  it.each([
+    ['/v1/invites/preview', { token: 'a'.repeat(64) }],
+    ['/v1/invites/accept', { token: 'a'.repeat(64) }],
+  ])('%s needs a session', async (path, body) => {
+    const res = await app.request(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    expect(res.status).toBe(401)
+  })
+
+  it('invite tokens must be well formed', async () => {
+    const res = await app.request('/v1/invites/accept', {
+      method: 'POST',
+      headers: { ...authed, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: 'not-a-token' }),
+    })
+    expect(res.status).toBe(422)
+  })
+
+  it('household addresses must be well formed', async () => {
+    const res = await app.request(
+      '/public/households/by-address?country=usa&region=california&city=x&name=Smiths',
+    )
+    expect(res.status).toBe(422)
+  })
+})
+
 describe('loadConfig', () => {
   const base = {
     SUPABASE_URL: 'https://abc.supabase.co',
@@ -163,6 +259,17 @@ describe('loadConfig', () => {
         CORS_ALLOWED_ORIGINS: 'http://households.xyz',
       }),
     ).toThrow(/https/)
+  })
+
+  it('accepts only a real secret key as SUPABASE_SECRET_KEY, and treats empty as unset', () => {
+    expect(() =>
+      loadConfig({ ...base, SUPABASE_SECRET_KEY: 'sb_publishable_abcdefghijklmnop' }),
+    ).toThrow(/SUPABASE_SECRET_KEY/)
+    expect(loadConfig({ ...base, SUPABASE_SECRET_KEY: '' }).SUPABASE_SECRET_KEY).toBeUndefined()
+    expect(
+      loadConfig({ ...base, SUPABASE_SECRET_KEY: 'sb_secret_abcdefghijklmnop' })
+        .SUPABASE_SECRET_KEY,
+    ).toBe('sb_secret_abcdefghijklmnop')
   })
 
   it('never includes secret values in error messages', () => {

@@ -1,13 +1,25 @@
 import { lazy } from 'react'
 
-// Signed-in areas load on demand: they pull in Supabase auth, which public
-// pages (marketing, public household profiles) never need.
+// Everything behind AuthLayout loads on demand: it pulls in Supabase auth,
+// which the marketing pages never need.
 
 export const AuthLayout = lazy(() => import('../features/auth/AuthLayout'))
 
-/** Public, but loaded on demand so the homepage doesn't carry its validation code. */
+/** Members' view and public profiles. Needs the session to tell them apart. */
 export const HouseholdPage = lazy(() =>
   import('../pages/HouseholdPage').then((m) => ({ default: m.HouseholdPage })),
+)
+
+export const HouseholdSettingsPage = lazy(() =>
+  import('../pages/HouseholdSettingsPage').then((m) => ({ default: m.HouseholdSettingsPage })),
+)
+
+export const InvitePage = lazy(() =>
+  import('../pages/InvitePage').then((m) => ({ default: m.InvitePage })),
+)
+
+export const ChildSignInPage = lazy(() =>
+  import('../pages/ChildSignInPage').then((m) => ({ default: m.ChildSignInPage })),
 )
 
 export const SignInPage = lazy(() =>

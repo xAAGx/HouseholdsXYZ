@@ -8,6 +8,7 @@ import {
   createTestDatabase,
   insertAuthUser,
   PLACES,
+  service,
   user,
   VALID_SIGN_UP,
 } from './supabase-shim'
@@ -128,25 +129,28 @@ describe('profiles', () => {
     expect(code).toBe('42501')
   })
 
-  it('never lets a child account become discoverable', async () => {
-    const code = await as(db, user(ids.child), () =>
-      pgErrorCode(() =>
-        db.query('update public.profiles set is_discoverable = true where id = $1', [ids.child]),
-      ),
+  it("can't be edited by children themselves (parents manage them)", async () => {
+    const result = await as(db, user(ids.child), () =>
+      db.query(`update public.profiles set display_name = 'x' where id = $1`, [ids.child]),
     )
-    expect(code).toBe('23514')
+    expect(result.affectedRows).toBe(0)
   })
 
-  it('never give a child account a location', async () => {
-    const code = await as(db, user(ids.child), () =>
-      pgErrorCode(() =>
+  it('never make a child discoverable or give them a location, whoever writes', async () => {
+    // As the database owner, past RLS: the table constraints still hold.
+    expect(
+      await pgErrorCode(() =>
+        db.query('update public.profiles set is_discoverable = true where id = $1', [ids.child]),
+      ),
+    ).toBe('23514')
+    expect(
+      await pgErrorCode(() =>
         db.query('update public.profiles set city_id = $1 where id = $2', [
           PLACES.sanFrancisco,
           ids.child,
         ]),
       ),
-    )
-    expect(code).toBe('23514')
+    ).toBe('23514')
   })
 
   it("cannot edit someone else's profile", async () => {
@@ -498,9 +502,393 @@ describe('memberships', () => {
   })
 })
 
+// ── Roles, invites and child accounts ───────────────────────────────────────
+// A separate household per block, so earlier tests' changes don't leak in.
+
+async function newAdult(first: string): Promise<string> {
+  return createAuthUser(db, { first_name: first, last_name: 'Jones' })
+}
+
+async function newHousehold(ownerId: string, slug: string): Promise<string> {
+  return as(db, user(ownerId), async () => {
+    const { rows } = await db.query<{ id: string }>(
+      `select public.create_household('The Joneses', $1, $2) as id`,
+      [slug, PLACES.cairo],
+    )
+    return rows[0]!.id
+  })
+}
+
+async function invite(actorId: string, householdId: string, role: string) {
+  return as(db, user(actorId), async () => {
+    const { rows } = await db.query<{ invite_id: string; invite_token: string }>(
+      'select * from public.create_household_invite($1, $2)',
+      [householdId, role],
+    )
+    return rows[0]!
+  })
+}
+
+async function accept(actorId: string, token: string) {
+  return as(db, user(actorId), () =>
+    db.query<{ id: string }>('select public.accept_household_invite($1) as id', [token]),
+  )
+}
+
+async function roleOf(householdId: string, profileId: string): Promise<string | undefined> {
+  const { rows } = await db.query<{ role: string }>(
+    'select role from public.household_members where household_id = $1 and profile_id = $2',
+    [householdId, profileId],
+  )
+  return rows[0]?.role
+}
+
+/** Creates a child login the way the API does: set-up secret, then Supabase Auth. */
+async function newChild(parentId: string, householdId: string, name = 'Leo'): Promise<string> {
+  const secret = await as(db, service, async () => {
+    const { rows } = await db.query<{ secret: string }>(
+      'select public.begin_child_account($1, $2, $3) as secret',
+      [parentId, householdId, name],
+    )
+    return rows[0]!.secret
+  })
+  return insertAuthUser(db, { child_setup: secret })
+}
+
+describe('invite links', () => {
+  const people = { owner: '', adult: '', invitee: '', latecomer: '', household: '' }
+
+  beforeAll(async () => {
+    people.owner = await newAdult('Olga')
+    people.adult = await newAdult('Adam')
+    people.invitee = await newAdult('Ines')
+    people.latecomer = await newAdult('Lars')
+    people.household = await newHousehold(people.owner, 'InviteHouse')
+    const { invite_token } = await invite(people.owner, people.household, 'adult')
+    await accept(people.adult, invite_token)
+  })
+
+  it('store only a hash of the token', async () => {
+    const { invite_id, invite_token } = await invite(people.owner, people.household, 'guest')
+    expect(invite_token).toMatch(/^[0-9a-f]{64}$/)
+    const { rows } = await db.query<{ token_hash: string }>(
+      'select token_hash from public.household_invites where id = $1',
+      [invite_id],
+    )
+    expect(rows[0]?.token_hash).not.toBe(invite_token)
+    expect(rows[0]?.token_hash).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it('never expose token hashes, even to inviters', async () => {
+    const code = await as(db, user(people.owner), () =>
+      pgErrorCode(() => db.query('select token_hash from public.household_invites')),
+    )
+    expect(code).toBe('42501')
+  })
+
+  it('make the invitee a member with the invited role, once', async () => {
+    const { invite_token } = await invite(people.adult, people.household, 'caregiver')
+    await accept(people.invitee, invite_token)
+    expect(await roleOf(people.household, people.invitee)).toBe('caregiver')
+    expect(await pgErrorCode(() => accept(people.latecomer, invite_token))).toBe('P0002')
+    expect(await roleOf(people.household, people.latecomer)).toBeUndefined()
+  })
+
+  it('stop working when they expire', async () => {
+    const { invite_id, invite_token } = await invite(people.owner, people.household, 'guest')
+    await db.query(
+      `update public.household_invites set expires_at = now() - interval '1 minute' where id = $1`,
+      [invite_id],
+    )
+    expect(await pgErrorCode(() => accept(people.latecomer, invite_token))).toBe('P0002')
+  })
+
+  it('let only the owner invite admins', async () => {
+    expect(await pgErrorCode(() => invite(people.adult, people.household, 'admin'))).toBe('42501')
+    expect(await pgErrorCode(() => invite(people.owner, people.household, 'admin'))).toBeUndefined()
+  })
+
+  it('are for adults only: no child or teen invites', async () => {
+    for (const role of ['child', 'teen', 'owner']) {
+      expect(await pgErrorCode(() => invite(people.owner, people.household, role))).toBe('22023')
+    }
+  })
+
+  it("can't be created by outsiders or members without invite_members", async () => {
+    expect(await pgErrorCode(() => invite(people.latecomer, people.household, 'adult'))).toBe(
+      '42501',
+    )
+    // Caregivers can't invite by default.
+    expect(await pgErrorCode(() => invite(people.invitee, people.household, 'guest'))).toBe('42501')
+  })
+
+  it('show a preview to signed-in adults only while open', async () => {
+    const { invite_token } = await invite(people.owner, people.household, 'adult')
+    const preview = await as(db, user(people.latecomer), () =>
+      db.query<{ household_name: string; invited_by: string }>(
+        'select * from public.get_household_invite($1)',
+        [invite_token],
+      ),
+    )
+    expect(preview.rows[0]).toMatchObject({
+      household_name: 'The Joneses',
+      invited_by: 'Olga Jones',
+    })
+
+    const anonCode = await as(db, anon, () =>
+      pgErrorCode(() => db.query('select * from public.get_household_invite($1)', [invite_token])),
+    )
+    expect(anonCode).toBe('42501')
+
+    const wrong = await as(db, user(people.latecomer), () =>
+      db.query('select * from public.get_household_invite($1)', ['0'.repeat(64)]),
+    )
+    expect(wrong.rows).toEqual([])
+  })
+
+  it('are listed and revoked by inviters, not by others', async () => {
+    const { invite_id } = await invite(people.owner, people.household, 'guest')
+    const seen = await as(db, user(people.invitee), () =>
+      db.query('select id from public.household_invites where id = $1', [invite_id]),
+    )
+    expect(seen.rows).toHaveLength(0)
+
+    const revokedByCaregiver = await as(db, user(people.invitee), () =>
+      db.query('delete from public.household_invites where id = $1', [invite_id]),
+    )
+    expect(revokedByCaregiver.affectedRows).toBe(0)
+
+    const revoked = await as(db, user(people.adult), () =>
+      db.query('delete from public.household_invites where id = $1', [invite_id]),
+    )
+    expect(revoked.affectedRows).toBe(1)
+  })
+})
+
+describe('member roles', () => {
+  const people = { owner: '', admin: '', adult: '', household: '' }
+
+  beforeAll(async () => {
+    people.owner = await newAdult('Rosa')
+    people.admin = await newAdult('Arto')
+    people.adult = await newAdult('Aida')
+    people.household = await newHousehold(people.owner, 'RoleHouse')
+    await accept(people.admin, (await invite(people.owner, people.household, 'admin')).invite_token)
+    await accept(people.adult, (await invite(people.owner, people.household, 'adult')).invite_token)
+  })
+
+  const setRole = (actorId: string, profileId: string, role: string) =>
+    as(db, user(actorId), () =>
+      db.query('select public.set_household_member_role($1, $2, $3)', [
+        people.household,
+        profileId,
+        role,
+      ]),
+    )
+
+  it('are changed by people with manage_members', async () => {
+    await setRole(people.admin, people.adult, 'caregiver')
+    expect(await roleOf(people.household, people.adult)).toBe('caregiver')
+    await setRole(people.admin, people.adult, 'adult')
+  })
+
+  it('need the owner to make or unmake admins', async () => {
+    expect(await pgErrorCode(() => setRole(people.admin, people.adult, 'admin'))).toBe('42501')
+    await setRole(people.owner, people.adult, 'admin')
+    expect(await pgErrorCode(() => setRole(people.admin, people.adult, 'guest'))).toBe('42501')
+    await setRole(people.owner, people.adult, 'adult')
+  })
+
+  it("never touch the owner, your own role, or anyone's without permission", async () => {
+    expect(await pgErrorCode(() => setRole(people.admin, people.owner, 'adult'))).toBe('42501')
+    expect(await pgErrorCode(() => setRole(people.admin, people.admin, 'owner'))).toBe('42501')
+    expect(await pgErrorCode(() => setRole(people.adult, people.admin, 'guest'))).toBe('42501')
+  })
+
+  it('keep adults out of child roles and children out of adult roles', async () => {
+    expect(await pgErrorCode(() => setRole(people.owner, people.adult, 'child'))).toBe('23514')
+    const child = await newChild(people.owner, people.household)
+    expect(await pgErrorCode(() => setRole(people.owner, child, 'adult'))).toBe('23514')
+    await setRole(people.owner, child, 'teen')
+    expect(await roleOf(people.household, child)).toBe('teen')
+  })
+})
+
+describe('child accounts', () => {
+  const people = { parent: '', adult: '', stranger: '', household: '' }
+
+  beforeAll(async () => {
+    people.parent = await newAdult('Petra')
+    people.adult = await newAdult('Anton')
+    people.stranger = await newAdult('Sven')
+    people.household = await newHousehold(people.parent, 'ChildHouse')
+    await accept(
+      people.adult,
+      (await invite(people.parent, people.household, 'adult')).invite_token,
+    )
+  })
+
+  it('are created from a one-time set-up secret, as members with the child role', async () => {
+    const child = await newChild(people.parent, people.household, 'Mia')
+    const { rows } = await db.query<Record<string, unknown>>(
+      `select p.display_name, p.account_type, p.city_id, m.role, u.raw_user_meta_data as meta
+       from public.profiles p
+       join public.household_members m on m.profile_id = p.id
+       join auth.users u on u.id = p.id
+       where p.id = $1`,
+      [child],
+    )
+    expect(rows[0]).toEqual({
+      display_name: 'Mia',
+      account_type: 'child',
+      city_id: null,
+      role: 'child',
+      meta: {},
+    })
+  })
+
+  it('refuse reused, forged or expired set-up secrets', async () => {
+    const secret = await as(db, service, async () => {
+      const { rows } = await db.query<{ secret: string }>(
+        'select public.begin_child_account($1, $2, $3) as secret',
+        [people.parent, people.household, 'Noa'],
+      )
+      return rows[0]!.secret
+    })
+    await insertAuthUser(db, { child_setup: secret })
+    expect(await pgErrorCode(() => insertAuthUser(db, { child_setup: secret }))).toBe('22023')
+    expect(await pgErrorCode(() => insertAuthUser(db, { child_setup: 'f'.repeat(64) }))).toBe(
+      '22023',
+    )
+  })
+
+  it('can only be set up for parents with manage_children', async () => {
+    for (const parent of [people.adult, people.stranger]) {
+      const code = await as(db, service, () =>
+        pgErrorCode(() =>
+          db.query('select public.begin_child_account($1, $2, $3)', [
+            parent,
+            people.household,
+            'Eve',
+          ]),
+        ),
+      )
+      expect(code).toBe('42501')
+    }
+  })
+
+  it('cannot be set up by signed-in users directly, only by the API', async () => {
+    const code = await as(db, user(people.parent), () =>
+      pgErrorCode(() =>
+        db.query('select public.begin_child_account($1, $2, $3)', [
+          people.parent,
+          people.household,
+          'Eve',
+        ]),
+      ),
+    )
+    expect(code).toBe('42501')
+  })
+
+  it("can't create households or accept invites", async () => {
+    const child = await newChild(people.parent, people.household)
+    const createCode = await as(db, user(child), () =>
+      pgErrorCode(() =>
+        db.query(`select public.create_household('Kid house', 'KidHouse', $1)`, [PLACES.cairo]),
+      ),
+    )
+    expect(createCode).toBe('42501')
+    const { invite_token } = await invite(people.parent, people.household, 'guest')
+    expect(await pgErrorCode(() => accept(child, invite_token))).toBe('42501')
+  })
+})
+
+describe('child sign-in codes', () => {
+  const people = { parent: '', adult: '', child: '', household: '' }
+
+  beforeAll(async () => {
+    people.parent = await newAdult('Paula')
+    people.adult = await newAdult('Arne')
+    people.household = await newHousehold(people.parent, 'CodeHouse')
+    await accept(
+      people.adult,
+      (await invite(people.parent, people.household, 'adult')).invite_token,
+    )
+    people.child = await newChild(people.parent, people.household, 'Ava')
+  })
+
+  const createCode = (actorId: string, childId: string) =>
+    as(db, user(actorId), async () => {
+      const { rows } = await db.query<{ sign_in_code: string }>(
+        'select * from public.create_child_sign_in_code($1, $2)',
+        [people.household, childId],
+      )
+      return rows[0]!.sign_in_code
+    })
+
+  const redeem = (code: string) =>
+    as(db, service, async () => {
+      const { rows } = await db.query<{ child: string | null }>(
+        'select public.redeem_child_sign_in_code($1) as child',
+        [code],
+      )
+      return rows[0]!.child
+    })
+
+  it('are 8 characters from an alphabet without look-alikes', async () => {
+    const code = await createCode(people.parent, people.child)
+    expect(code).toMatch(/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$/)
+  })
+
+  it('unlock the child once', async () => {
+    const code = await createCode(people.parent, people.child)
+    expect(await redeem(code)).toBe(people.child)
+    expect(await redeem(code)).toBeNull()
+  })
+
+  it('replace any earlier code, and expire', async () => {
+    const first = await createCode(people.parent, people.child)
+    const second = await createCode(people.parent, people.child)
+    expect(await redeem(first)).toBeNull()
+    await db.query(
+      `update private.child_sign_in_codes set expires_at = now() - interval '1 second'`,
+    )
+    expect(await redeem(second)).toBeNull()
+  })
+
+  it('are only made by parents with manage_children, and only for child accounts', async () => {
+    expect(await pgErrorCode(() => createCode(people.adult, people.child))).toBe('42501')
+    expect(await pgErrorCode(() => createCode(people.parent, people.adult))).toBe('42501')
+  })
+
+  it('can only be redeemed by the API, never by signed-in users or visitors', async () => {
+    const code = await createCode(people.parent, people.child)
+    for (const actor of [anon, user(people.adult)]) {
+      const err = await as(db, actor, () =>
+        pgErrorCode(() => db.query('select public.redeem_child_sign_in_code($1)', [code])),
+      )
+      expect(err).toBe('42501')
+    }
+  })
+
+  it("aren't readable by anyone but the database", async () => {
+    const err = await as(db, user(people.parent), () =>
+      pgErrorCode(() => db.query('select * from private.child_sign_in_codes')),
+    )
+    expect(err).toBe('42501')
+  })
+})
+
 describe('privileges', () => {
   it.each([
     ['anon', 'public.create_household(text,text,integer)'],
+    ['anon', 'public.create_household_invite(uuid,public.household_role)'],
+    ['anon', 'public.accept_household_invite(text)'],
+    ['anon', 'public.set_household_member_role(uuid,uuid,public.household_role)'],
+    ['authenticated', 'public.begin_child_account(uuid,uuid,text)'],
+    ['authenticated', 'public.redeem_child_sign_in_code(text)'],
+    ['authenticated', 'private.member_has_permission(uuid,uuid,public.household_permission)'],
+    ['authenticated', 'private.sha256_hex(text)'],
     ['anon', 'public.my_household_permissions(uuid)'],
     ['anon', 'private.has_household_permission(uuid,public.household_permission)'],
     ['authenticated', 'private.handle_new_user()'],
