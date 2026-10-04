@@ -94,39 +94,113 @@ export const meRoutes = new Hono<AppEnv>()
   .get('/export', async (c) => {
     const db = c.var.supabase
     const me = c.var.auth.userId
-    const [profile, details, memberships, lists, completions, points, redemptions] =
-      await Promise.all([
-        db
-          .from('profiles')
-          .select('display_name, first_name, last_name, account_type, city_id, created_at')
-          .eq('id', me)
-          .single(),
-        db
-          .from('account_details')
-          .select('date_of_birth, phone, phone_verified_at')
-          .eq('profile_id', me)
-          .maybeSingle(),
-        db
-          .from('household_members')
-          .select('role, joined_at, household:households!inner(name, slug)')
-          .eq('profile_id', me),
-        db
-          .from('lists')
-          .select(
-            'title, kind, visibility, created_at, archived_at, items:list_items(text, quantity, note, due_on, done_at)',
-          )
-          .eq('created_by', me),
-        db
-          .from('chore_completions')
-          .select('period_start, status, points, created_at, chore:chores(title)')
-          .eq('completed_by', me),
-        db.from('points_ledger').select('delta, reason, note, created_at').eq('profile_id', me),
-        db
-          .from('reward_redemptions')
-          .select('cost, status, created_at, reward:rewards(title)')
-          .eq('requested_by', me),
-      ])
-    for (const result of [profile, details, memberships, lists, completions, points, redemptions]) {
+    const [
+      profile,
+      details,
+      memberships,
+      lists,
+      completions,
+      points,
+      redemptions,
+      events,
+      recipes,
+      meals,
+      notifications,
+      expenses,
+      pocketMoney,
+      savingsGoals,
+      messages,
+      documents,
+    ] = await Promise.all([
+      db
+        .from('profiles')
+        .select('display_name, first_name, last_name, account_type, city_id, created_at')
+        .eq('id', me)
+        .single(),
+      db
+        .from('account_details')
+        .select('date_of_birth, phone, phone_verified_at')
+        .eq('profile_id', me)
+        .maybeSingle(),
+      db
+        .from('household_members')
+        .select('role, joined_at, household:households!inner(name, slug)')
+        .eq('profile_id', me),
+      db
+        .from('lists')
+        .select(
+          'title, kind, visibility, created_at, archived_at, items:list_items(text, quantity, note, due_on, done_at)',
+        )
+        .eq('created_by', me),
+      db
+        .from('chore_completions')
+        .select('period_start, status, points, created_at, chore:chores(title)')
+        .eq('completed_by', me),
+      db.from('points_ledger').select('delta, reason, note, created_at').eq('profile_id', me),
+      db
+        .from('reward_redemptions')
+        .select('cost, status, created_at, reward:rewards(title)')
+        .eq('requested_by', me),
+      db
+        .from('events')
+        .select(
+          'title, notes, location, starts_on, ends_on, start_time, end_time, time_zone, repeat, repeat_until, visibility, created_at',
+        )
+        .eq('created_by', me),
+      db
+        .from('recipes')
+        .select('title, ingredients, method, servings, source_url, created_at')
+        .eq('created_by', me),
+      db
+        .from('meal_plan_entries')
+        .select('on_date, slot, title, note, created_at')
+        .eq('created_by', me),
+      db
+        .from('notifications')
+        .select('kind, title, body, read_at, created_at')
+        .eq('recipient_id', me),
+      db
+        .from('expenses')
+        .select('title, amount_minor, spent_on, category, notes, created_at')
+        .eq('created_by', me),
+      db
+        .from('pocket_transactions')
+        .select('amount_minor, kind, note, created_at')
+        .eq('profile_id', me),
+      db
+        .from('savings_goals')
+        .select('title, target_minor, achieved_at, created_at')
+        .eq('profile_id', me),
+      db
+        .from('messages')
+        .select('body, created_at, edited_at')
+        .eq('author_id', me)
+        .is('deleted_at', null),
+      db
+        .from('documents')
+        .select(
+          'title, category, reference, notes, expires_on, visibility, created_at, files:document_files(file_name, mime_type, size_bytes)',
+        )
+        .eq('created_by', me),
+    ])
+    for (const result of [
+      profile,
+      details,
+      memberships,
+      lists,
+      completions,
+      points,
+      redemptions,
+      events,
+      recipes,
+      meals,
+      notifications,
+      expenses,
+      pocketMoney,
+      savingsGoals,
+      messages,
+      documents,
+    ]) {
       if (result.error) throw toApiError(result.error)
     }
 
@@ -140,6 +214,17 @@ export const meRoutes = new Hono<AppEnv>()
       choresDone: completions.data,
       points: points.data,
       rewardRequests: redemptions.data,
+      events: events.data,
+      recipes: recipes.data,
+      mealsPlanned: meals.data,
+      notifications: notifications.data,
+      // Amounts are in the household currency's smallest unit (cents).
+      expensesAdded: expenses.data,
+      pocketMoney: pocketMoney.data,
+      savingsGoals: savingsGoals.data,
+      messagesSent: messages.data,
+      // File contents stay in the vault; open them there to download.
+      documentsAdded: documents.data,
     })
   })
 

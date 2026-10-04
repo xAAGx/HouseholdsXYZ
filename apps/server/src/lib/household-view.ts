@@ -42,7 +42,9 @@ export async function loadHouseholdView(
 
   const { data: household, error: householdError } = await supabase
     .from('households')
-    .select(`id, slug, name, bio, visibility, city_id, city:geo_cities(${CITY_EMBED})`)
+    .select(
+      `id, slug, name, bio, visibility, city_id, time_zone, currency, currency_digits, points_value_minor, city:geo_cities(${CITY_EMBED})`,
+    )
     .eq('id', match.household_id)
     .single()
   if (householdError) throw toApiError(householdError)
@@ -77,6 +79,27 @@ export async function loadHouseholdView(
   )
   if (permissionsError) throw toApiError(permissionsError)
 
+  // A nudge for people who approve chores: what's waiting for them.
+  let pendingApprovals = 0
+  if (permissions.includes('manage_chores')) {
+    const [chores, rewards] = await Promise.all([
+      supabase
+        .from('chore_completions')
+        .select('id', { count: 'exact', head: true })
+        .eq('household_id', household.id)
+        .eq('status', 'pending')
+        .neq('completed_by', userId),
+      supabase
+        .from('reward_redemptions')
+        .select('id', { count: 'exact', head: true })
+        .eq('household_id', household.id)
+        .eq('status', 'requested'),
+    ])
+    if (chores.error) throw toApiError(chores.error)
+    if (rewards.error) throw toApiError(rewards.error)
+    pendingApprovals = (chores.count ?? 0) + (rewards.count ?? 0)
+  }
+
   const members: HouseholdMember[] = rows
     .map((row) => ({
       profileId: row.profile_id,
@@ -102,9 +125,14 @@ export async function loadHouseholdView(
       visibility: household.visibility,
       cityId: household.city_id,
       place,
+      timeZone: household.time_zone,
+      currency: household.currency,
+      currencyDigits: household.currency_digits,
+      pointsValueMinor: household.points_value_minor,
     },
     myRole: me.role,
     permissions,
     members,
+    pendingApprovals,
   }
 }

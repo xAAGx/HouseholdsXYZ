@@ -4,7 +4,19 @@
  */
 
 export type IconName =
-  'chores' | 'calendar' | 'lists' | 'money' | 'vault' | 'memories' | 'chat' | 'home' | 'check'
+  | 'chores'
+  | 'calendar'
+  | 'lists'
+  | 'money'
+  | 'vault'
+  | 'memories'
+  | 'chat'
+  | 'home'
+  | 'check'
+  | 'bell'
+  | 'meals'
+  | 'chevronLeft'
+  | 'chevronRight'
 
 const paths: Record<IconName, string> = {
   chores: 'M9 12l2 2 4-4M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z',
@@ -17,6 +29,11 @@ const paths: Record<IconName, string> = {
   chat: 'M20 12a8 8 0 0 1-11.6 7.1L4 20l1-4.2A8 8 0 1 1 20 12z',
   home: 'M3 11l9-7 9 7M5 10v10h14V10M10 20v-6h4v6',
   check: 'M5 12.5l4.5 4.5L19 7.5',
+  bell: 'M18 16v-5a6 6 0 0 0-12 0v5l-2 2h16zM10 21h4',
+  meals:
+    'M3 12h18a9 9 0 0 1-18 0zM8 8c0-1.5 1.5-2 1.5-3.5S8 3 8 3M14 8c0-1.5 1.5-2 1.5-3.5S14 3 14 3',
+  chevronLeft: 'M15 18l-6-6 6-6',
+  chevronRight: 'M9 18l6-6-6-6',
 }
 
 export function Icon({

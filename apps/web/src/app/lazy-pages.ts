@@ -30,6 +30,38 @@ export const ChoresPage = lazy(() =>
   import('../pages/ChoresPage').then((m) => ({ default: m.ChoresPage })),
 )
 
+export const NotificationsPage = lazy(() =>
+  import('../pages/NotificationsPage').then((m) => ({ default: m.NotificationsPage })),
+)
+
+export const HouseholdLinkPage = lazy(() =>
+  import('../pages/HouseholdLinkPage').then((m) => ({ default: m.HouseholdLinkPage })),
+)
+
+export const CalendarPage = lazy(() =>
+  import('../pages/CalendarPage').then((m) => ({ default: m.CalendarPage })),
+)
+
+export const RecipePage = lazy(() =>
+  import('../pages/RecipePage').then((m) => ({ default: m.RecipePage })),
+)
+
+export const MealsPage = lazy(() =>
+  import('../pages/MealsPage').then((m) => ({ default: m.MealsPage })),
+)
+
+export const MoneyPage = lazy(() =>
+  import('../pages/MoneyPage').then((m) => ({ default: m.MoneyPage })),
+)
+
+export const ChatPage = lazy(() =>
+  import('../pages/ChatPage').then((m) => ({ default: m.ChatPage })),
+)
+
+export const DocumentsPage = lazy(() =>
+  import('../pages/DocumentsPage').then((m) => ({ default: m.DocumentsPage })),
+)
+
 export const AccountPage = lazy(() =>
   import('../pages/AccountPage').then((m) => ({ default: m.AccountPage })),
 )

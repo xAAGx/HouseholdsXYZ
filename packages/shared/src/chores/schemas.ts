@@ -7,6 +7,7 @@ import type { ChoreRepeat } from './periods'
 // give forms and the API the same rules.
 
 export type ChoreCompletionStatus = Enums<'chore_completion_status'>
+export type ChoreTimeOfDay = Enums<'chore_time_of_day'>
 export type RedemptionStatus = Enums<'redemption_status'>
 export type PointsReason = Enums<'points_reason'>
 
@@ -18,6 +19,26 @@ export const CHORE_REPEAT_LABELS: Record<ChoreRepeat, string> = {
   weekly: 'Every week',
   monthly: 'Every month',
 }
+
+export const CHORE_TIMES_OF_DAY = Constants.public.Enums.chore_time_of_day
+
+export const CHORE_TIME_OF_DAY_LABELS: Record<ChoreTimeOfDay, string> = {
+  morning: 'Morning',
+  afternoon: 'Afternoon',
+  evening: 'Evening',
+  anytime: 'Any time',
+}
+
+/** Monday first, like the database (ISO weekdays 1-7). */
+export const WEEKDAY_LABELS = [
+  { day: 1, short: 'Mon', long: 'Monday' },
+  { day: 2, short: 'Tue', long: 'Tuesday' },
+  { day: 3, short: 'Wed', long: 'Wednesday' },
+  { day: 4, short: 'Thu', long: 'Thursday' },
+  { day: 5, short: 'Fri', long: 'Friday' },
+  { day: 6, short: 'Sat', long: 'Saturday' },
+  { day: 7, short: 'Sun', long: 'Sunday' },
+] as const
 
 export const MAX_CHORE_POINTS = 1000
 export const MAX_REWARD_COST = 100000
@@ -44,15 +65,41 @@ const pointsSchema = z
   .min(0, 'Points can’t be negative.')
   .max(MAX_CHORE_POINTS, `Use at most ${MAX_CHORE_POINTS} points.`)
 
+/** Daily chores: the days it's on (null: every day). */
+const weekdaysSchema = z
+  .array(z.number().int().min(1).max(7))
+  .min(1, 'Choose at least one day.')
+  .max(7)
+  .refine((days) => new Set(days).size === days.length, 'Choose each day once.')
+  .nullable()
+
+/** People taking turns, in order (null: no turns). */
+const rotationSchema = z
+  .array(z.uuid())
+  .min(2, 'Choose at least two people to take turns.')
+  .max(20, 'Choose up to 20 people.')
+  .refine((ids) => new Set(ids).size === ids.length, 'Choose each person once.')
+  .nullable()
+
+const remindAtSchema = z
+  .string()
+  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use a time like 18:00.')
+  .nullable()
+
 export const createChoreInputSchema = z.strictObject({
   title: choreTitleSchema,
   notes: notesSchema.optional(),
   points: pointsSchema,
-  /** Null: anyone in the household can do it. */
+  /** Null: anyone in the household can do it (or, with a rotation, whoever's turn it is). */
   assignedTo: z.uuid().nullable(),
   repeat: z.enum(CHORE_REPEATS),
   dueOn: dateSchema.nullable().optional(),
   needsApproval: z.boolean(),
+  timeOfDay: z.enum(CHORE_TIMES_OF_DAY).optional(),
+  weekdays: weekdaysSchema.optional(),
+  rotation: rotationSchema.optional(),
+  /** "If it isn't done by then, remind whoever's turn it is" ("18:00"). */
+  remindAt: remindAtSchema.optional(),
 })
 export type CreateChoreInput = z.input<typeof createChoreInputSchema>
 
@@ -65,6 +112,10 @@ export const updateChoreInputSchema = z
     repeat: z.enum(CHORE_REPEATS).optional(),
     dueOn: dateSchema.nullable().optional(),
     needsApproval: z.boolean().optional(),
+    timeOfDay: z.enum(CHORE_TIMES_OF_DAY).optional(),
+    weekdays: weekdaysSchema.optional(),
+    rotation: rotationSchema.optional(),
+    remindAt: remindAtSchema.optional(),
     archived: z.boolean().optional(),
   })
   .refine((input) => Object.values(input).some((value) => value !== undefined), {
@@ -76,7 +127,11 @@ export type UpdateChoreInput = z.input<typeof updateChoreInputSchema>
 export const completeChoreInputSchema = z.strictObject({ today: dateSchema })
 export const choreBoardQuerySchema = z.object({ today: dateSchema })
 
-export const reviewInputSchema = z.strictObject({ approve: z.boolean() })
+export const reviewInputSchema = z.strictObject({
+  approve: z.boolean(),
+  /** Why it was turned down, shown to the person who did it. */
+  note: z.string().trim().max(200, 'Keep it to 200 characters.').optional(),
+})
 
 const rewardTitleSchema = z
   .string()
@@ -137,6 +192,11 @@ export interface Chore {
   repeat: ChoreRepeat
   dueOn: string | null
   needsApproval: boolean
+  timeOfDay: ChoreTimeOfDay
+  weekdays: number[] | null
+  rotation: string[] | null
+  /** "HH:MM", or null for no reminder. */
+  remindAt: string | null
   archived: boolean
   createdOn: string
 }
@@ -149,6 +209,7 @@ export interface ChoreCompletion {
   status: ChoreCompletionStatus
   points: number
   reviewedBy: string | null
+  reviewNote: string | null
   createdAt: string
 }
 
@@ -183,7 +244,13 @@ export interface PointsEntry {
 /** Everything on the chores page, for one household and one day. */
 export interface ChoreBoard {
   today: string
-  chores: (Chore & { current: ChoreCompletion | null })[]
+  chores: (Chore & {
+    current: ChoreCompletion | null
+    /** Whose turn it is today (rotation), or the assignee; null: anyone. */
+    turn: string | null
+    /** False for daily chores that skip today's weekday. */
+    onToday: boolean
+  })[]
   /** Completions from the last 60 days, newest first (for streaks and history). */
   recent: ChoreCompletion[]
   balances: Record<string, number>

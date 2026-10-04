@@ -39,6 +39,54 @@ const SUPABASE_SHIM = /* sql */ `
   grant execute on function auth.uid() to anon, authenticated, service_role;
   grant execute on function auth.jwt() to anon, authenticated, service_role;
 
+  -- Realtime: broadcast messages and the topic a client is joining (set by
+  -- the Realtime server while it checks the realtime.messages policies).
+  create schema realtime;
+  create table realtime.messages (
+    id bigint generated always as identity primary key,
+    topic text not null,
+    extension text not null default 'broadcast',
+    payload jsonb,
+    event text,
+    private boolean default true,
+    inserted_at timestamptz not null default now()
+  );
+  alter table realtime.messages enable row level security;
+  create function realtime.topic() returns text language sql stable as $$
+    select nullif(current_setting('realtime.topic', true), '')
+  $$;
+  create function realtime.send(payload jsonb, event text, topic text, private boolean default true)
+  returns void language sql security definer as $$
+    insert into realtime.messages (topic, payload, event, private) values ($3, $1, $2, $4)
+  $$;
+  -- Storage: buckets and objects, with RLS as on the hosted project.
+  create schema storage;
+  create table storage.buckets (
+    id text primary key,
+    name text not null,
+    public boolean not null default false,
+    file_size_limit bigint,
+    allowed_mime_types text[],
+    created_at timestamptz not null default now()
+  );
+  create table storage.objects (
+    id uuid primary key default gen_random_uuid(),
+    bucket_id text references storage.buckets (id),
+    name text not null,
+    owner uuid default auth.uid(),
+    owner_id text default auth.uid()::text,
+    created_at timestamptz not null default now(),
+    unique (bucket_id, name)
+  );
+  alter table storage.objects enable row level security;
+  grant usage on schema storage to anon, authenticated, service_role;
+  grant select on storage.buckets to anon, authenticated;
+  grant select, insert, update, delete on storage.objects to anon, authenticated;
+
+  grant usage on schema realtime to anon, authenticated, service_role;
+  grant select, insert on realtime.messages to anon, authenticated;
+  grant execute on function realtime.topic() to anon, authenticated, service_role;
+
   -- Supabase's permissive platform defaults, which our migrations must override.
   grant usage on schema public to anon, authenticated, service_role;
   alter default privileges in schema public grant all on tables to anon, authenticated, service_role;

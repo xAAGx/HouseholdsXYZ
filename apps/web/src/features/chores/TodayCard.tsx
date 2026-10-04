@@ -1,4 +1,10 @@
-import { CHORE_REPEAT_LABELS, type ChoreBoard } from '@households/shared'
+import {
+  CHORE_REPEAT_LABELS,
+  CHORE_TIME_OF_DAY_LABELS,
+  CHORE_TIMES_OF_DAY,
+  WEEKDAY_LABELS,
+  type ChoreBoard,
+} from '@households/shared'
 import styled from 'styled-components'
 
 import {
@@ -9,10 +15,12 @@ import {
   ErrorText,
   Muted,
   NameTag,
+  Playful,
   PointsBadge,
   Row,
   Stack,
   StatusText,
+  Text,
 } from '../../components/ui'
 import { visuallyHidden } from '../../components/ui/mixins'
 import { apiErrorMessage } from '../../lib/api-errors'
@@ -21,9 +29,12 @@ import type { ChoreActions } from './queries'
 
 type BoardChore = ChoreBoard['chores'][number]
 
+// Morning first, "any time" last: the order a day goes.
+const TIME_ORDER = [...CHORE_TIMES_OF_DAY.filter((time) => time !== 'anytime'), 'anytime'] as const
+
 /**
- * Today's chores. Yours (and anyone's) first, with a big Done button;
- * everyone else's below, so the household can see how it's going.
+ * Today's chores, by time of day. Yours (whose turn it is, or anyone's) come
+ * with a big Done button; everyone else's show how it's going.
  */
 export function TodayCard({
   board,
@@ -36,32 +47,45 @@ export function TodayCard({
   names: Map<string, string>
   actions: ChoreActions
 }) {
-  const manage = board.canManage
-  const active = board.chores.filter((chore) => !chore.archived)
-  const mine = active.filter((chore) => chore.assignedTo === null || chore.assignedTo === me)
-  const others = active.filter((chore) => chore.assignedTo !== null && chore.assignedTo !== me)
+  const active = board.chores.filter((chore) => !chore.archived && chore.onToday)
+  const mine = active.filter((chore) => chore.turn === null || chore.turn === me)
+  const others = active.filter((chore) => chore.turn !== null && chore.turn !== me)
   const failed = actions.complete.error ?? actions.undo.error
+  const skipped = board.chores.filter((chore) => !chore.archived && !chore.onToday).length
 
   return (
     <Card $padding="lg">
-      <Stack $gap={4}>
+      <Stack $gap={5}>
         <CardTitle>Today</CardTitle>
-        {active.length === 0 && <Muted>No chores yet.</Muted>}
-        {mine.length > 0 && (
-          <List>
-            {mine.map((chore) => (
-              <ChoreRow
-                key={chore.id}
-                chore={chore}
-                me={me}
-                names={names}
-                actions={actions}
-                canManage={manage}
-                canDo
-              />
-            ))}
-          </List>
+        {active.length === 0 && (
+          <Muted>{skipped > 0 ? 'No chores today. Enjoy it.' : 'No chores yet.'}</Muted>
         )}
+        {TIME_ORDER.map((time) => {
+          const group = mine.filter((chore) => chore.timeOfDay === time)
+          if (group.length === 0) return null
+          return (
+            <Stack key={time} $gap={2}>
+              {mine.some((chore) => chore.timeOfDay !== 'anytime') && (
+                <Muted>
+                  <Playful>{CHORE_TIME_OF_DAY_LABELS[time]}</Playful>
+                </Muted>
+              )}
+              <List>
+                {group.map((chore) => (
+                  <ChoreRow
+                    key={chore.id}
+                    chore={chore}
+                    me={me}
+                    names={names}
+                    actions={actions}
+                    canManage={board.canManage}
+                    canDo
+                  />
+                ))}
+              </List>
+            </Stack>
+          )
+        })}
         {others.length > 0 && (
           <Stack $gap={2}>
             <Muted>Everyone else</Muted>
@@ -73,7 +97,7 @@ export function TodayCard({
                   me={me}
                   names={names}
                   actions={actions}
-                  canManage={manage}
+                  canManage={board.canManage}
                 />
               ))}
             </List>
@@ -83,6 +107,16 @@ export function TodayCard({
       </Stack>
     </Card>
   )
+}
+
+function schedule(chore: BoardChore): string {
+  if (chore.repeat === 'once') return chore.dueOn ? `Due ${formatDay(chore.dueOn)}` : 'Once'
+  if (chore.repeat === 'daily' && chore.weekdays && chore.weekdays.length < 7) {
+    return WEEKDAY_LABELS.filter((w) => chore.weekdays?.includes(w.day))
+      .map((w) => w.short)
+      .join(', ')
+  }
+  return CHORE_REPEAT_LABELS[chore.repeat]
 }
 
 function ChoreRow({
@@ -101,7 +135,13 @@ function ChoreRow({
   canDo?: boolean
 }) {
   const current = chore.current
-  const who = chore.assignedTo ? (names.get(chore.assignedTo) ?? 'Someone') : 'Anyone'
+  const who = chore.turn
+    ? chore.turn === me
+      ? 'You'
+      : (names.get(chore.turn) ?? 'Someone')
+    : 'Anyone'
+  // With a rotation, say whose turn it is today.
+  const turnLabel = !chore.rotation ? who : chore.turn === me ? 'Your turn' : `${who}’s turn`
   const doneBy = current && current.completedBy !== me ? names.get(current.completedBy) : null
   // Mirrors undo_chore_completion: the doer while it waits, managers always.
   const canUndo =
@@ -112,18 +152,17 @@ function ChoreRow({
   return (
     <li>
       <Line>
-        <Stack $gap={1}>
+        <Stack $gap={1} $align="start">
           <Title>{chore.title}</Title>
           <Row $gap={2}>
-            <NameTag>{who}</NameTag>
+            <NameTag>{turnLabel}</NameTag>
             {chore.points > 0 && <PointsBadge>+{chore.points}</PointsBadge>}
-            <Muted as="span">
-              {chore.repeat === 'once' && chore.dueOn
-                ? `Due ${formatDay(chore.dueOn)}`
-                : CHORE_REPEAT_LABELS[chore.repeat]}
-            </Muted>
+            <Muted as="span">{schedule(chore)}</Muted>
           </Row>
           {chore.notes && <Muted>{chore.notes}</Muted>}
+          {current?.status === 'rejected' && current.reviewNote && (
+            <Text>“{current.reviewNote}”</Text>
+          )}
         </Stack>
         <Row $gap={2}>
           {current?.status === 'approved' && (

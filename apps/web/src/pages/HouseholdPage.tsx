@@ -1,4 +1,5 @@
 import {
+  deviceTimeZone,
   HOUSEHOLD_VISIBILITY_LABELS,
   isMinorRole,
   type HouseholdDetail,
@@ -8,7 +9,7 @@ import {
   type PublicHouseholdProfile,
 } from '@households/shared'
 import type { Accent } from '@households/theme'
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { Link, Navigate, useLocation, useParams } from 'react-router'
 import styled from 'styled-components'
 
@@ -26,13 +27,19 @@ import {
   Row,
   Stack,
   StatusDot,
+  StatusText,
   Text,
 } from '../components/ui'
 import { useAuth } from '../features/auth/auth-context'
 import { AddChildCard } from '../features/households/AddChildCard'
 import { InviteCard } from '../features/households/InviteCard'
 import { MembersCard } from '../features/households/MembersCard'
-import { useHouseholdView, type AddressParams } from '../features/households/queries'
+import { TodayOverview } from '../features/households/TodayOverview'
+import {
+  useHouseholdView,
+  useUpdateHousehold,
+  type AddressParams,
+} from '../features/households/queries'
 import { NotFoundPage } from './NotFoundPage'
 
 /**
@@ -86,6 +93,7 @@ function HouseholdViewPage({ view }: { view: HouseholdView }) {
           household={view.household}
           me={{ role: view.myRole, permissions: view.permissions }}
           members={view.members}
+          pendingApprovals={view.pendingApprovals}
         />
       )
   }
@@ -114,14 +122,18 @@ function MemberHousehold({
   household,
   me,
   members,
+  pendingApprovals,
 }: {
   household: HouseholdDetail
   me: MyMembership
   members: HouseholdMember[]
+  /** Chores and reward requests waiting for me to check. */
+  pendingApprovals: number
 }) {
   const isAdult = !isMinorRole(me.role)
   const canInvite = me.permissions.includes('invite_members')
   const canAddChildren = me.permissions.includes('manage_children')
+  useHomeTimeZone(household, me)
 
   return (
     <Shell>
@@ -145,7 +157,12 @@ function MemberHousehold({
           )}
         </Header>
 
-        <Features />
+        <Features
+          waiting={{ chores: pendingApprovals }}
+          blurbs={me.permissions.includes('view_expenses') ? {} : { money: 'Your pocket money' }}
+        />
+
+        <TodayOverview householdId={household.id} members={members} />
 
         {canInvite || canAddChildren ? (
           <TopAligned $columns={2} $gap={5}>
@@ -163,7 +180,7 @@ function MemberHousehold({
   )
 }
 
-const FEATURES: { title: string; icon: IconName; tone: Accent; path?: string; blurb?: string }[] = [
+const FEATURES: { title: string; icon: IconName; tone: Accent; path: string; blurb: string }[] = [
   { title: 'Lists', icon: 'lists', tone: 'sky', path: 'lists', blurb: 'To-dos, shopping, packing' },
   {
     title: 'Chores & rewards',
@@ -172,41 +189,95 @@ const FEATURES: { title: string; icon: IconName; tone: Accent; path?: string; bl
     path: 'chores',
     blurb: 'Chores, points and rewards',
   },
-  { title: 'Shared calendar', icon: 'calendar', tone: 'grape' },
-  { title: 'Family chat', icon: 'chat', tone: 'coral' },
-  { title: 'Expenses & budgets', icon: 'money', tone: 'grass' },
-  { title: 'Document vault', icon: 'vault', tone: 'sky' },
-  { title: 'Home inventory', icon: 'home', tone: 'yellow' },
-  { title: 'Memories', icon: 'memories', tone: 'grape' },
+  {
+    title: 'Calendar',
+    icon: 'calendar',
+    tone: 'grape',
+    path: 'calendar',
+    blurb: 'Plans, due dates, meals',
+  },
+  {
+    title: 'Meals',
+    icon: 'meals',
+    tone: 'coral',
+    path: 'meals',
+    blurb: 'Plan the week, shop once',
+  },
+  { title: 'Chat', icon: 'chat', tone: 'sky', path: 'chat', blurb: 'Just the household' },
+  {
+    title: 'Money',
+    icon: 'money',
+    tone: 'grass',
+    path: 'money',
+    blurb: 'Bills, budgets, pocket money',
+  },
+  {
+    title: 'Documents',
+    icon: 'vault',
+    tone: 'grape',
+    path: 'documents',
+    blurb: 'Papers and expiry dates',
+  },
 ]
 
-/** What the household can do: working features link, the rest are on their way. */
-function Features() {
+const COMING_SOON = ['Home inventory', 'Memories']
+
+/**
+ * Reminders follow the household's clock. Until someone sets it, the first
+ * person who can sets it to their device's zone (they can change it in
+ * settings).
+ */
+function useHomeTimeZone(household: HouseholdDetail, me: MyMembership) {
+  const update = useUpdateHousehold(household.id)
+  const tried = useRef(false)
+  const canSet = me.permissions.includes('manage_household')
+  useEffect(() => {
+    if (household.timeZone !== null || !canSet || tried.current) return
+    tried.current = true
+    update.mutate({ timeZone: deviceTimeZone() })
+  }, [household.timeZone, canSet, update])
+}
+
+/**
+ * What the household can do, and what's on its way. A feature with
+ * something waiting for you says so.
+ */
+function Features({
+  waiting,
+  blurbs,
+}: {
+  waiting: Partial<Record<string, number>>
+  /** Per-person wording, by path. */
+  blurbs: Partial<Record<string, string>>
+}) {
   return (
-    <Grid $columns={4} $gap={4}>
-      {FEATURES.map((feature) => {
-        const tile = (
-          <Card $variant={feature.path ? 'outlined' : 'plain'} $padding="md">
-            <Tile>
-              <IconChip $tone={feature.tone} $size={36} aria-hidden="true">
-                <Icon name={feature.icon} size={18} />
-              </IconChip>
-              <div>
-                <TileTitle>{feature.title}</TileTitle>
-                <Muted>{feature.blurb ?? 'Coming soon'}</Muted>
-              </div>
-            </Tile>
-          </Card>
-        )
-        return feature.path ? (
-          <TileLink key={feature.title} to={feature.path} relative="path">
-            {tile}
-          </TileLink>
-        ) : (
-          <div key={feature.title}>{tile}</div>
-        )
-      })}
-    </Grid>
+    <Stack $gap={3}>
+      <Grid $columns={4} $gap={4}>
+        {FEATURES.map((feature) => {
+          const count = waiting[feature.path] ?? 0
+          return (
+            <TileLink key={feature.title} to={feature.path} relative="path">
+              <Card $padding="md">
+                <Tile>
+                  <IconChip $tone={feature.tone} $size={36} aria-hidden="true">
+                    <Icon name={feature.icon} size={18} />
+                  </IconChip>
+                  <div>
+                    <TileTitle>{feature.title}</TileTitle>
+                    {count > 0 ? (
+                      <StatusText $status="warning">{count} waiting for you</StatusText>
+                    ) : (
+                      <Muted>{blurbs[feature.path] ?? feature.blurb}</Muted>
+                    )}
+                  </div>
+                </Tile>
+              </Card>
+            </TileLink>
+          )
+        })}
+      </Grid>
+      <Muted>Coming soon: {COMING_SOON.join(' · ')}</Muted>
+    </Stack>
   )
 }
 
@@ -246,6 +317,12 @@ const Tile = styled.div`
 
 const TileLink = styled(Link)`
   display: block;
+  height: 100%;
+
+  > div {
+    height: 100%;
+  }
+
   color: inherit;
   text-decoration: none;
   border-radius: ${({ theme }) => theme.radii.lg}px;

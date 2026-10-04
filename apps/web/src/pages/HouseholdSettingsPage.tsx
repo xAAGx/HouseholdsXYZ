@@ -1,14 +1,20 @@
 import {
   ApiError,
+  COUNTRY_CURRENCIES,
+  currencyDigits,
+  deviceTimeZone,
+  formatMoney,
   householdPath,
   isMinorRole,
+  moneyInput,
   moveHouseholdInputSchema,
+  parseMoney,
   updateHouseholdInputSchema,
   type HouseholdDetail,
   type HouseholdMember,
   type MyMembership,
 } from '@households/shared'
-import { useState, type FormEvent } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router'
 
 import { AppHeader } from '../components/app/AppHeader'
@@ -17,6 +23,7 @@ import {
   ButtonLink,
   Card,
   CardTitle,
+  Combobox,
   ConfirmButton,
   ErrorText,
   Muted,
@@ -107,6 +114,7 @@ function Settings({
             <>
               <DetailsSection household={household} />
               <AddressSection household={household} />
+              <TimeAndMoneySection household={household} />
             </>
           ) : (
             <Text>Only the owner and admins can change the household’s details.</Text>
@@ -172,6 +180,140 @@ function DetailsSection({ household }: { household: HouseholdDetail }) {
           <Row>
             <Button type="submit" disabled={update.isPending}>
               {update.isPending ? 'Saving…' : 'Save details'}
+            </Button>
+            {update.isSuccess && <Muted role="status">Saved.</Muted>}
+          </Row>
+        </Stack>
+      </form>
+    </Card>
+  )
+}
+
+/** Every IANA zone this device knows ("Africa/Cairo"), or just this device's. */
+function knownTimeZones(): string[] {
+  try {
+    return Intl.supportedValuesOf('timeZone')
+  } catch {
+    return [deviceTimeZone()]
+  }
+}
+
+const currencyNames = (() => {
+  try {
+    return new Intl.DisplayNames(undefined, { type: 'currency' })
+  } catch {
+    return null
+  }
+})()
+
+/** "Egyptian Pound (EGP)". */
+const currencyLabel = (code: string) => {
+  const name = currencyNames?.of(code)
+  return name && name !== code ? `${name} (${code})` : code
+}
+
+/**
+ * The household's clock (reminders follow it), its currency, and what points
+ * are worth as pocket money.
+ */
+function TimeAndMoneySection({ household }: { household: HouseholdDetail }) {
+  const update = useUpdateHousehold(household.id)
+  const [zoneInput, setZoneInput] = useState(household.timeZone ?? '')
+  const [timeZone, setTimeZone] = useState(household.timeZone)
+  const [currency, setCurrency] = useState(household.currency)
+  const digits = currencyDigits(currency)
+  const [pointsValue, setPointsValue] = useState(
+    household.pointsValueMinor === null
+      ? ''
+      : moneyInput(household.pointsValueMinor, household.currencyDigits),
+  )
+  const [error, setError] = useState<string | null>(null)
+
+  const zones = useMemo(() => knownTimeZones(), [])
+  const query = zoneInput.trim().toLowerCase().replace(/\s+/g, '_')
+  const matches =
+    query && zoneInput !== timeZone
+      ? zones.filter((zone) => zone.toLowerCase().includes(query)).slice(0, 8)
+      : []
+  const suggested = household.place ? COUNTRY_CURRENCIES[household.place.countryCode] : undefined
+  const currencies = [
+    ...new Set([currency, household.currency, ...(suggested ? [suggested] : [])]),
+    ...[...new Set(Object.values(COUNTRY_CURRENCIES))].sort(),
+  ].filter((code, i, all) => all.indexOf(code) === i)
+
+  function onSubmit(event: FormEvent) {
+    event.preventDefault()
+    const points = pointsValue.trim() ? parseMoney(pointsValue, digits) : null
+    if (pointsValue.trim() && (points === null || points < 1)) {
+      setError('Enter what 100 points are worth, like 1.00, or leave it empty.')
+      return
+    }
+    const parsed = updateHouseholdInputSchema.safeParse({
+      ...(timeZone && timeZone !== household.timeZone ? { timeZone } : {}),
+      ...(currency !== household.currency ? { currency } : {}),
+      pointsValueMinor: points,
+    })
+    if (!parsed.success) {
+      setError(parsed.error.issues[0]?.message ?? 'Check the values.')
+      return
+    }
+    setError(null)
+    update.mutate(parsed.data)
+  }
+
+  return (
+    <Card $padding="lg">
+      <form onSubmit={onSubmit} noValidate>
+        <Stack $gap={4}>
+          <CardTitle>Time and money</CardTitle>
+          <Combobox
+            label="Time zone"
+            hint="Reminders, bills and allowances follow the household’s clock."
+            inputValue={zoneInput}
+            onInputChange={(value) => {
+              setZoneInput(value)
+              setTimeZone(null)
+            }}
+            options={matches}
+            getKey={(zone) => zone}
+            getLabel={(zone) => zone.replace(/_/g, ' ')}
+            onSelect={(zone) => {
+              setTimeZone(zone)
+              setZoneInput(zone)
+            }}
+            selected={timeZone !== null && zoneInput === timeZone}
+            placeholder={deviceTimeZone()}
+            emptyText="No time zone by that name."
+          />
+          <Select
+            label="Currency"
+            value={currency}
+            hint="Amounts already entered aren’t converted."
+            onChange={(e) => setCurrency(e.target.value)}
+          >
+            {currencies.map((code) => (
+              <option key={code} value={code}>
+                {currencyLabel(code)}
+              </option>
+            ))}
+          </Select>
+          <TextField
+            label="100 points are worth (optional)"
+            inputMode="decimal"
+            placeholder={moneyInput(10 ** digits, digits)}
+            value={pointsValue}
+            onChange={(e) => setPointsValue(e.target.value)}
+            hint={
+              pointsValue.trim() && parseMoney(pointsValue, digits)
+                ? `Children can swap 100 points for ${formatMoney(parseMoney(pointsValue, digits) ?? 0, currency, digits)} of pocket money.`
+                : 'Leave empty to keep points and pocket money apart.'
+            }
+          />
+          {error && <ErrorText role="alert">{error}</ErrorText>}
+          {update.isError && <ErrorText role="alert">{apiErrorMessage(update.error)}</ErrorText>}
+          <Row>
+            <Button type="submit" disabled={update.isPending}>
+              {update.isPending ? 'Saving…' : 'Save'}
             </Button>
             {update.isSuccess && <Muted role="status">Saved.</Muted>}
           </Row>

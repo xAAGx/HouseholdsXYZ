@@ -27,9 +27,10 @@ export const householdKeys = {
   invites: (householdId: string) => [...householdKeys.all, householdId, 'invites'] as const,
 }
 
-export function useMyHouseholds() {
+export function useMyHouseholds(enabled = true) {
   return useQuery({
     queryKey: householdKeys.mine(),
+    enabled,
     queryFn: () => unwrap(api.v1.households.$get()),
     select: (data) => data.households,
   })

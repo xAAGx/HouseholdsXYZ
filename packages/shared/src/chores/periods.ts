@@ -49,6 +49,57 @@ export function chorePeriodStart(repeat: ChoreRepeat, day: string, createdOn: st
   }
 }
 
+/** ISO weekday of a date: 1 = Monday … 7 = Sunday. */
+export function isoWeekday(day: string): number {
+  return parse(day).getUTCDay() || 7
+}
+
+const EPOCH_MONDAY = Date.UTC(2000, 0, 3)
+
+/**
+ * Which repeat a period is, counted from a fixed Monday, so turns rotate
+ * evenly. Mirrors private.chore_period_index in the database.
+ */
+export function chorePeriodIndex(repeat: ChoreRepeat, periodStart: string): number {
+  const days = Math.round((parse(periodStart).getTime() - EPOCH_MONDAY) / 86_400_000)
+  switch (repeat) {
+    case 'daily':
+      return days
+    case 'weekly':
+      return Math.trunc(days / 7)
+    case 'monthly': {
+      const [y, m] = periodStart.split('-').map(Number) as [number, number]
+      return (y - 2000) * 12 + m - 1
+    }
+    case 'once':
+      return 0
+  }
+}
+
+export interface ChoreSchedule {
+  repeat: ChoreRepeat
+  assignedTo: string | null
+  /** People taking turns, in order (null: no turns). */
+  rotation: readonly string[] | null
+  /** Daily chores only: ISO weekdays it's on (null: every day). */
+  weekdays: readonly number[] | null
+}
+
+/** Whose turn it is in a period: mirrors private.chore_assignee. Null: anyone. */
+export function choreAssignee(chore: ChoreSchedule, periodStart: string): string | null {
+  const turns = chore.rotation ?? []
+  if (turns.length === 0) return chore.assignedTo
+  const n = turns.length
+  const index = ((chorePeriodIndex(chore.repeat, periodStart) % n) + n) % n
+  return turns[index] ?? null
+}
+
+/** Whether a chore is on a given day (daily chores can skip weekdays). */
+export function isChoreOn(chore: ChoreSchedule, day: string): boolean {
+  if (chore.repeat !== 'daily' || !chore.weekdays) return true
+  return chore.weekdays.includes(isoWeekday(day))
+}
+
 /**
  * Days in a row with at least one chore done, counting back from today (or
  * from yesterday, so a streak isn't lost before today's chores are done).

@@ -15,6 +15,18 @@ const NO_RAW_HTML = {
     'Rendering raw HTML enables XSS, which would expose sessions and household data. Render text, or get a security review for a sanitizer.',
 }
 
+// Node-only (lib/web-push-sender.ts): kept out of everything app-type.ts reaches.
+const WEB_PUSH = {
+  name: 'web-push',
+  message: 'web-push is Node-only. Use it in lib/web-push-sender.ts; routes use c.var.push.',
+}
+const WEB_PUSH_SENDER = {
+  group: ['**/web-push-sender', '**/page-fetcher'],
+  allowTypeImports: true,
+  message:
+    'Node-only: the entry files wire it up (createApp deps). Routes use c.var.push / c.var.pages.',
+}
+
 const SUPABASE_CREATE_CLIENT = {
   name: '@supabase/supabase-js',
   importNames: ['createClient'],
@@ -147,6 +159,12 @@ export default defineConfig(
     },
   },
 
+  // The service worker (push notifications only): plain JS in a worker scope.
+  {
+    files: ['apps/web/public/sw.js'],
+    languageOptions: { globals: globals.serviceworker },
+  },
+
   // ── Mobile ────────────────────────────────────────────────────────────────
   {
     files: ['apps/mobile/**/*.{ts,tsx}'],
@@ -164,8 +182,9 @@ export default defineConfig(
       'no-restricted-imports': [
         'error',
         {
-          paths: [SUPABASE_CREATE_CLIENT],
+          paths: [SUPABASE_CREATE_CLIENT, WEB_PUSH],
           patterns: [
+            WEB_PUSH_SENDER,
             {
               group: ['**/admin-auth'],
               allowTypeImports: true,
@@ -179,7 +198,17 @@ export default defineConfig(
   },
   {
     files: ['apps/server/src/api.ts'],
+    rules: { 'no-restricted-imports': ['error', { paths: [SUPABASE_CREATE_CLIENT, WEB_PUSH] }] },
+  },
+  // web-push is Node-only: it lives in one file, which only the entry files
+  // import, so nothing the web and mobile apps type-check reaches it.
+  {
+    files: ['apps/server/src/lib/web-push-sender.ts', 'apps/server/src/lib/page-fetcher.ts'],
     rules: { 'no-restricted-imports': ['error', { paths: [SUPABASE_CREATE_CLIENT] }] },
+  },
+  {
+    files: ['apps/server/src/entry-*.ts'],
+    rules: { 'no-restricted-imports': ['error', { paths: [SUPABASE_CREATE_CLIENT, WEB_PUSH] }] },
   },
 
   // ── Server & tooling ──────────────────────────────────────────────────────

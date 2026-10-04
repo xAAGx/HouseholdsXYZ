@@ -8,8 +8,10 @@ import {
 import {
   createListInputSchema,
   createListItemInputSchema,
+  splitItemLines,
   updateListItemInputSchema,
 } from './schemas'
+import { guessStoreSection } from './sections'
 
 const id = '6c1f7f55-4b8a-4d8e-9d0a-2f8a8c3f2b11'
 
@@ -45,6 +47,34 @@ describe('lists', () => {
   it('refuse empty updates', () => {
     expect(updateListItemInputSchema.safeParse({}).success).toBe(false)
     expect(updateListItemInputSchema.safeParse({ done: true }).success).toBe(true)
+  })
+})
+
+describe('adding several items', () => {
+  it('splits pasted lines, dropping bullets, numbers and blanks', () => {
+    expect(splitItemLines('- Milk\n\n• Bread\r\n2) Eggs\n  * Apples  ')).toEqual([
+      'Milk',
+      'Bread',
+      'Eggs',
+      'Apples',
+    ])
+  })
+})
+
+describe('store sections', () => {
+  it.each([
+    ['Oat milk', 'Dairy & eggs'],
+    ['Cat food', 'Pets'],
+    ['Ice cream', 'Frozen'],
+    ['Bananas', 'Fruit & vegetables'],
+    ['Toothpaste', 'Personal care'],
+  ])('puts %s under %s', (text, section) => {
+    expect(guessStoreSection(text)).toBe(section)
+  })
+
+  it('leaves unknown things unsorted', () => {
+    expect(guessStoreSection('Birthday candles for Leo')).toBe('Household')
+    expect(guessStoreSection('Thing for the thing')).toBeNull()
   })
 })
 

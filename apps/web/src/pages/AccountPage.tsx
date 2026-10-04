@@ -22,6 +22,7 @@ import {
   TwoStepSection,
 } from '../features/account/SecuritySections'
 import { useAuth } from '../features/auth/auth-context'
+import { PushSettingsCard } from '../features/notifications/PushSettingsCard'
 import { useMe } from '../features/profile/queries'
 
 /** /account: everything about you. Calm on purpose: no playful type here (DESIGN.md §12). */
@@ -57,6 +58,7 @@ export function AccountPage() {
               </Stack>
             </Card>
           )}
+          {me.data?.accountType === 'child' && <PushSettingsCard />}
           {me.data?.accountType === 'standard' && (
             <>
               <ProfileSection me={me.data} />
@@ -64,6 +66,7 @@ export function AccountPage() {
               <EmailSection email={email} />
               <PasswordSection />
               <TwoStepSection />
+              <PushSettingsCard />
               <SessionsSection />
               <DataSection />
               <DeleteAccountSection email={email} />

@@ -8,11 +8,15 @@ import {
   Button,
   Card,
   CardTitle,
+  ChatBubble,
   Checkbox,
   Chip,
+  ChipButton,
+  ChipGroup,
   CodeDisplay,
   Combobox,
   ConfirmButton,
+  CountBadge,
   CopyField,
   Container,
   Eyebrow,
@@ -29,6 +33,7 @@ import {
   Pill,
   Playful,
   PointsBadge,
+  ProgressBar,
   Row,
   SectionTitle,
   Select,
@@ -60,6 +65,10 @@ export function DesignSystemPage() {
     'chat',
     'home',
     'check',
+    'bell',
+    'meals',
+    'chevronLeft',
+    'chevronRight',
   ]
 
   return (
@@ -185,11 +194,16 @@ export function DesignSystemPage() {
               </Pill>
               <Chip>Household</Chip>
               <Chip $selected>Selected</Chip>
+              <Chip $small>Small tag</Chip>
               <NameTag>Teens</NameTag>
               <PointsBadge>+5</PointsBadge>
               <StatusText $status="success">Paid by Sam</StatusText>
               <StatusText $status="warning">Due soon</StatusText>
               <StatusText $status="danger">Overdue</StatusText>
+              <Button $variant="ghost" $size="sm" aria-label="Notifications, 3 unread">
+                <Icon name="bell" size={20} />
+                <CountBadge aria-hidden="true">3</CountBadge>
+              </Button>
             </Row>
           </Block>
 
@@ -249,6 +263,54 @@ export function DesignSystemPage() {
           </Block>
 
           <Block
+            title="Toggles & progress"
+            note="ChipButton switches on and off; ChipGroup labels a set of them. ProgressBar turns green when complete, or coral at a budget's limit."
+          >
+            <Grid $columns={2} $gap={5}>
+              <WeekdaysDemo />
+              <Stack $gap={4}>
+                <Stack $gap={2}>
+                  <Muted>3 of 7 done</Muted>
+                  <ProgressBar value={3} max={7} label="3 of 7 done" />
+                </Stack>
+                <Stack $gap={2}>
+                  <Muted>All done</Muted>
+                  <ProgressBar value={7} max={7} label="7 of 7 done" />
+                </Stack>
+                <Stack $gap={2}>
+                  <Muted>Over budget (kind="limit")</Muted>
+                  <ProgressBar value={172} max={150} kind="limit" label="$172 of $150 spent" />
+                </Stack>
+              </Stack>
+            </Grid>
+          </Block>
+
+          <Block
+            title="Chat"
+            note="ChatBubble: yours on the right on the sky tint, others on the left. Author above, time and actions below."
+          >
+            <Card $variant="plain" $padding="md">
+              <Stack $gap={3}>
+                <ChatBubble mine={false} author="Mona" footer={<span>4:05 PM</span>}>
+                  Who’s picking Leo up from swimming?
+                </ChatBubble>
+                <ChatBubble
+                  mine
+                  quote="Mona: Who’s picking Leo up from swimming?"
+                  footer={
+                    <>
+                      <span>4:07 PM</span>
+                      <span>edited</span>
+                    </>
+                  }
+                >
+                  I can, I’m finishing at 5.
+                </ChatBubble>
+              </Stack>
+            </Card>
+          </Block>
+
+          <Block
             title="One-time codes & confirmations"
             note="Codes use the body face. Destructive actions always ask first."
           >
@@ -277,6 +339,28 @@ const DEMO_CITIES = [
   { id: 3, name: 'Spring Valley', district: null },
   { id: 4, name: 'Salem', district: null },
 ]
+
+function WeekdaysDemo() {
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+  const [on, setOn] = useState(['Mon', 'Wed', 'Fri'])
+  return (
+    <ChipGroup label="On these days" hint="Tap to switch a day on or off.">
+      {days.map((day) => (
+        <ChipButton
+          key={day}
+          pressed={on.includes(day)}
+          onClick={() =>
+            setOn((current) =>
+              current.includes(day) ? current.filter((d) => d !== day) : [...current, day],
+            )
+          }
+        >
+          {day}
+        </ChipButton>
+      ))}
+    </ChipGroup>
+  )
+}
 
 function PasswordDemo() {
   const [password, setPassword] = useState('Correct-horse')

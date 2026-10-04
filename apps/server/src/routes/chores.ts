@@ -3,10 +3,12 @@ import {
   adjustPointsInputSchema,
   ApiError,
   choreBoardQuerySchema,
+  choreAssignee,
   chorePeriodStart,
   completeChoreInputSchema,
   createChoreInputSchema,
   createRewardInputSchema,
+  isChoreOn,
   reviewInputSchema,
   updateChoreInputSchema,
   updateRewardInputSchema,
@@ -49,7 +51,7 @@ const redemptionParam = zValidator(
 )
 
 const COMPLETION_FIELDS =
-  'id, chore_id, period_start, completed_by, status, points, reviewed_by, created_at'
+  'id, chore_id, period_start, completed_by, status, points, reviewed_by, review_note, created_at'
 
 interface CompletionRow {
   id: string
@@ -59,6 +61,7 @@ interface CompletionRow {
   status: ChoreCompletion['status']
   points: number
   reviewed_by: string | null
+  review_note: string | null
   created_at: string
 }
 
@@ -70,6 +73,7 @@ const toCompletion = (row: CompletionRow): ChoreCompletion => ({
   status: row.status,
   points: row.points,
   reviewedBy: row.reviewed_by,
+  reviewNote: row.review_note,
   createdAt: row.created_at,
 })
 
@@ -107,7 +111,7 @@ export const choreRoutes = new Hono<AppEnv>()
           db
             .from('chores')
             .select(
-              'id, title, notes, points, assigned_to, repeat, due_on, needs_approval, archived_at, created_at',
+              'id, title, notes, points, assigned_to, repeat, due_on, needs_approval, time_of_day, weekdays, rotation, remind_at, archived_at, created_at',
             )
             .eq('household_id', id)
             .order('created_at', { ascending: true }),
@@ -182,6 +186,10 @@ export const choreRoutes = new Hono<AppEnv>()
             repeat: row.repeat,
             dueOn: row.due_on,
             needsApproval: row.needs_approval,
+            timeOfDay: row.time_of_day,
+            weekdays: row.weekdays,
+            rotation: row.rotation,
+            remindAt: row.remind_at ? row.remind_at.slice(0, 5) : null,
             archived: row.archived_at !== null,
             // The database's created_at::date is the UTC date.
             createdOn: row.created_at.slice(0, 10),
@@ -192,7 +200,12 @@ export const choreRoutes = new Hono<AppEnv>()
           )
           const current =
             inPeriod.find((completion) => completion.status !== 'rejected') ?? inPeriod[0] ?? null
-          return { ...chore, current }
+          return {
+            ...chore,
+            current,
+            turn: choreAssignee(chore, period),
+            onToday: isChoreOn(chore, today),
+          }
         }),
         recent: completions.filter((completion) => completion.createdAt >= since),
         balances: Object.fromEntries(
@@ -245,10 +258,14 @@ export const choreRoutes = new Hono<AppEnv>()
           title: input.title,
           notes: input.notes ?? null,
           points: input.points,
-          assigned_to: input.assignedTo,
+          assigned_to: input.rotation ? null : input.assignedTo,
           repeat: input.repeat,
           due_on: input.repeat === 'once' ? (input.dueOn ?? null) : null,
           needs_approval: input.needsApproval,
+          time_of_day: input.timeOfDay ?? 'anytime',
+          weekdays: input.repeat === 'daily' ? (input.weekdays ?? null) : null,
+          rotation: input.rotation ?? null,
+          remind_at: input.remindAt ?? null,
         })
         .select('id')
         .single()
@@ -274,6 +291,10 @@ export const choreRoutes = new Hono<AppEnv>()
           ...(input.repeat !== undefined && { repeat: input.repeat }),
           ...(input.dueOn !== undefined && { due_on: input.dueOn }),
           ...(input.needsApproval !== undefined && { needs_approval: input.needsApproval }),
+          ...(input.timeOfDay !== undefined && { time_of_day: input.timeOfDay }),
+          ...(input.weekdays !== undefined && { weekdays: input.weekdays }),
+          ...(input.rotation !== undefined && { rotation: input.rotation }),
+          ...(input.remindAt !== undefined && { remind_at: input.remindAt }),
           ...(input.archived !== undefined && {
             archived_at: input.archived ? new Date().toISOString() : null,
           }),
@@ -287,6 +308,19 @@ export const choreRoutes = new Hono<AppEnv>()
       return c.json(ok)
     },
   )
+
+  // Reminds whoever's turn it is (people who manage chores; once an hour).
+  .post('/chores/:choreId/nudge', choreParam, async (c) => {
+    const { choreId } = c.req.valid('param')
+    const { error } = await c.var.supabase.rpc('nudge_chore', { p_chore_id: choreId })
+    if (error) {
+      throw rpcError(error, {
+        '22023': 'There’s nobody to remind for this one.',
+        '54000': 'Already reminded in the last hour.',
+      })
+    }
+    return c.json(ok)
+  })
 
   .delete('/chores/:choreId', choreParam, async (c) => {
     const { id, choreId } = c.req.valid('param')
@@ -315,7 +349,7 @@ export const choreRoutes = new Hono<AppEnv>()
       if (error) {
         throw rpcError(error, {
           '23505': 'Already done. Nice!',
-          '22023': 'Check the date on your device.',
+          '22023': 'This chore isn’t on today, or your device’s date is off.',
         })
       }
       const done = data[0]
@@ -330,9 +364,11 @@ export const choreRoutes = new Hono<AppEnv>()
     zValidator('json', reviewInputSchema, validationHook),
     async (c) => {
       const { completionId } = c.req.valid('param')
+      const { approve, note } = c.req.valid('json')
       const { error } = await c.var.supabase.rpc('review_chore_completion', {
         p_completion_id: completionId,
-        p_approve: c.req.valid('json').approve,
+        p_approve: approve,
+        ...(note ? { p_note: note } : {}),
       })
       if (error) throw toApiError(error)
       return c.json(ok)

@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router'
 
+import { LiveUpdates } from '../live/LiveUpdates'
 import { AuthProvider } from './AuthProvider'
 
 /**
@@ -10,6 +11,7 @@ import { AuthProvider } from './AuthProvider'
 export default function AuthLayout() {
   return (
     <AuthProvider>
+      <LiveUpdates />
       <Outlet />
     </AuthProvider>
   )

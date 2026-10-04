@@ -3,9 +3,11 @@ import styled from 'styled-components'
 
 import { ButtonLink, Logo } from '../../components/ui'
 import { container } from '../../components/ui/mixins'
+import { useLooksSignedIn } from '../../lib/session-hint'
 import { navLinks } from './content'
 
 export function MarketingNav() {
+  const signedIn = useLooksSignedIn()
   return (
     <Bar>
       <Logo />
@@ -17,8 +19,14 @@ export function MarketingNav() {
         ))}
       </Links>
       <Actions>
-        <SignIn to="/sign-in">Sign in</SignIn>
-        <ButtonLink to="/sign-up">Get started</ButtonLink>
+        {signedIn ? (
+          <ButtonLink to="/app">Your households</ButtonLink>
+        ) : (
+          <>
+            <SignIn to="/sign-in">Sign in</SignIn>
+            <ButtonLink to="/sign-up">Get started</ButtonLink>
+          </>
+        )}
       </Actions>
     </Bar>
   )

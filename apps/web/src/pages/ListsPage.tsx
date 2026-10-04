@@ -5,6 +5,7 @@ import {
   LIST_VISIBILITIES,
   LIST_VISIBILITY_HINTS,
   LIST_VISIBILITY_LABELS,
+  localDate,
   type ListKind,
   type ListSummary,
   type ListVisibility,
@@ -17,7 +18,9 @@ import { Icon } from '../components/icons'
 import {
   Button,
   Card,
+  CardList,
   CardTitle,
+  Checkbox,
   ErrorText,
   Grid,
   IconChip,
@@ -25,9 +28,11 @@ import {
   Page,
   PageTitle,
   Pill,
+  ProgressBar,
   Row,
   Select,
   Stack,
+  StatusText,
   Text,
   TextField,
 } from '../components/ui'
@@ -35,8 +40,14 @@ import { HouseholdSubHeader, MemberGate } from '../features/households/MemberGat
 import type { MemberView } from '../features/households/member-view'
 import { LIST_KIND_LOOK } from '../features/lists/kinds'
 import { MemberPicker } from '../features/lists/MemberPicker'
-import { useCreateList, useLists } from '../features/lists/queries'
+import {
+  useAssignedItems,
+  useCreateList,
+  useLists,
+  useToggleAnyItem,
+} from '../features/lists/queries'
 import { apiErrorMessage } from '../lib/api-errors'
+import { formatDay } from '../lib/format'
 
 /** /…/lists: every list the signed-in member can see in this household. */
 export function ListsPage() {
@@ -72,6 +83,7 @@ function Lists({ view, basePath }: { view: MemberView; basePath: string }) {
             </Button>
           </Header>
 
+          {!archived && <ForYou view={view} basePath={basePath} />}
           {!archived && canCreate && <NewList view={view} basePath={basePath} />}
 
           {lists.isPending && <Muted>Loading…</Muted>}
@@ -109,6 +121,9 @@ function ListCard({ list, to }: { list: ListSummary; to: string }) {
             </IconChip>
             <CardTitle>{list.title}</CardTitle>
           </Row>
+          {list.itemCount > 0 && (
+            <ProgressBar value={list.doneCount} max={list.itemCount} label={progress} />
+          )}
           <Row $justify="between">
             <Muted as="span">{progress}</Muted>
             <Pill>{LIST_VISIBILITY_LABELS[list.visibility]}</Pill>
@@ -116,6 +131,47 @@ function ListCard({ list, to }: { list: ListSummary; to: string }) {
         </Stack>
       </Card>
     </CardLink>
+  )
+}
+
+/** Items someone asked you to do, across all your lists, soonest first. */
+function ForYou({ view, basePath }: { view: MemberView; basePath: string }) {
+  const items = useAssignedItems(view.household.id)
+  const toggle = useToggleAnyItem(view.household.id)
+  const today = localDate()
+  if (!items.data || items.data.length === 0) return null
+
+  return (
+    <Card $variant="soft" $tone="sky" $padding="lg">
+      <Stack $gap={3}>
+        <CardTitle>For you</CardTitle>
+        <Assigned>
+          {items.data.map(({ listId, listTitle, item }) => (
+            <li key={item.id}>
+              <Stack $gap={1}>
+                <Checkbox
+                  large
+                  checked={false}
+                  disabled={toggle.isPending}
+                  onChange={() => toggle.mutate({ listId, itemId: item.id, done: true })}
+                >
+                  {item.text}
+                </Checkbox>
+                <Meta>
+                  <Link to={`${basePath}/lists/${listId}`}>{listTitle}</Link>
+                  {item.dueOn && item.dueOn < today && (
+                    <StatusText $status="danger"> · Overdue</StatusText>
+                  )}
+                  {item.dueOn === today && <StatusText $status="warning"> · Due today</StatusText>}
+                  {item.dueOn && item.dueOn > today && ` · Due ${formatDay(item.dueOn)}`}
+                </Meta>
+              </Stack>
+            </li>
+          ))}
+        </Assigned>
+        {toggle.isError && <ErrorText role="alert">{apiErrorMessage(toggle.error)}</ErrorText>}
+      </Stack>
+    </Card>
   )
 }
 
@@ -210,6 +266,19 @@ const Header = styled.div`
   align-items: flex-start;
   justify-content: space-between;
   gap: ${({ theme }) => theme.space[3]}px;
+`
+
+const Assigned = styled(CardList)`
+  > li:first-child {
+    border-top: 0;
+    padding-top: 0;
+  }
+`
+
+const Meta = styled.p`
+  padding-left: 34px;
+  font-size: ${({ theme }) => theme.fontSizes.sm}px;
+  color: ${({ theme }) => theme.colors.textMuted};
 `
 
 const CardLink = styled(Link)`

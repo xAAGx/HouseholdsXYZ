@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 
 import { supabase } from '../../lib/supabase'
+import { forgetThisDevice } from '../notifications/push'
 import { AuthContext, type AuthState } from './auth-context'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -40,6 +41,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [queryClient])
 
   const signOut = useCallback(async () => {
+    // The next person on this device mustn't get your notifications.
+    await forgetThisDevice().catch(() => undefined)
     // 'local' ends this device's session only; offer "sign out everywhere" in settings.
     await supabase.auth.signOut({ scope: 'local' })
     queryClient.clear()

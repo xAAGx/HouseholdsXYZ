@@ -10,6 +10,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api } from '../../lib/api'
+import { liveInterval } from '../live/live-status'
 
 export const choreKeys = {
   board: (householdId: string) => ['chores', householdId] as const,
@@ -27,7 +28,7 @@ export function useChoreBoard(householdId: string) {
         }),
       ),
     select: (data) => data.board,
-    refetchInterval: 15_000,
+    refetchInterval: liveInterval(15_000),
   })
 }
 
@@ -57,6 +58,11 @@ export function useChoreActions(householdId: string) {
     deleteChore: useChoresMutation(id, (choreId: string) =>
       unwrap(h.chores[':choreId'].$delete({ param: { id, choreId } })),
     ),
+    /** Sends whoever's turn it is a reminder now. */
+    nudge: useMutation({
+      mutationFn: (choreId: string) =>
+        unwrap(h.chores[':choreId'].nudge.$post({ param: { id, choreId } })),
+    }),
     complete: useChoresMutation(id, (choreId: string) =>
       unwrap(
         h.chores[':choreId'].complete.$post({
@@ -67,11 +73,19 @@ export function useChoreActions(householdId: string) {
     ),
     review: useChoresMutation(
       id,
-      ({ completionId, approve }: { completionId: string; approve: boolean }) =>
+      ({
+        completionId,
+        approve,
+        note,
+      }: {
+        completionId: string
+        approve: boolean
+        note?: string
+      }) =>
         unwrap(
           h.completions[':completionId'].review.$post({
             param: { id, completionId },
-            json: { approve },
+            json: { approve, ...(note ? { note } : {}) },
           }),
         ),
     ),

@@ -15,17 +15,19 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@households/db": "workspace:*",
-    "@households/shared": "workspace:*",
     "@hono/node-server": "catalog:",
     "@hono/zod-validator": "catalog:",
+    "@households/db": "workspace:*",
+    "@households/shared": "workspace:*",
     "@supabase/supabase-js": "catalog:",
     "hono": "catalog:",
+    "web-push": "3.6.7",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@households/tsconfig": "workspace:*",
     "@types/node": "catalog:",
+    "@types/web-push": "^3.6.4",
     "esbuild": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:",

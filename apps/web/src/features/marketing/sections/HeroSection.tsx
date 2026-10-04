@@ -10,9 +10,11 @@ import {
   StatusDot,
 } from '../../../components/ui'
 import { container } from '../../../components/ui/mixins'
+import { useLooksSignedIn } from '../../../lib/session-hint'
 import { HeroBoard } from '../HeroBoard'
 
 export function HeroSection() {
+  const signedIn = useLooksSignedIn()
   return (
     <Hero id="top">
       <Copy>
@@ -27,8 +29,8 @@ export function HeroSection() {
           points to the insurance papers. Private by default, shared on your terms.
         </Lede>
         <Actions>
-          <ButtonLink to="/sign-up" $size="lg">
-            Start your household
+          <ButtonLink to={signedIn ? '/app' : '/sign-up'} $size="lg">
+            {signedIn ? 'Open your households' : 'Start your household'}
           </ButtonLink>
           <ButtonAnchor href="#features" $size="lg" $variant="secondary">
             See how it works

@@ -1207,12 +1207,93 @@ describe('chores & rewards', () => {
     expect(await pgErrorCode(() => complete(p.child, chore, dayOffset(1)))).toBeUndefined()
   })
 
-  it("approve managers' own completions straight away", async () => {
+  it('wait for approval whoever does them, managers included', async () => {
     const chore = await createChore(p.parent, { assignedTo: p.adult, points: 7 })
     const before = await balance(p.adult)
     const done = await complete(p.adult, chore)
-    expect(done.completion_status).toBe('approved')
+    expect(done.completion_status).toBe('pending')
+    expect(await balance(p.adult)).toBe(before)
+
+    // Nobody approves their own chore; someone else who manages chores can.
+    expect(await pgErrorCode(() => review(p.adult, done.completion_id, true))).toBe('42501')
+    await review(p.parent, done.completion_id, true)
     expect(await balance(p.adult)).toBe(before + 7)
+  })
+
+  it('count straight away when they need no approval', async () => {
+    const chore = await createChore(p.parent, {
+      assignedTo: p.child,
+      points: 2,
+      needsApproval: false,
+    })
+    const before = await balance(p.child)
+    expect((await complete(p.child, chore)).completion_status).toBe('approved')
+    expect(await balance(p.child)).toBe(before + 2)
+  })
+
+  it('can say why when turned down', async () => {
+    const chore = await createChore(p.parent, { assignedTo: p.child, points: 1 })
+    const done = await complete(p.child, chore)
+    await as(db, user(p.parent), () =>
+      db.query('select public.review_chore_completion($1, false, $2)', [
+        done.completion_id,
+        'Wipe the counter too',
+      ]),
+    )
+    const { rows } = await as(db, user(p.child), () =>
+      db.query<{ status: string; review_note: string }>(
+        'select status, review_note from public.chore_completions where id = $1',
+        [done.completion_id],
+      ),
+    )
+    expect(rows[0]).toEqual({ status: 'rejected', review_note: 'Wipe the counter too' })
+  })
+
+  it('only count on the weekdays they are set for', async () => {
+    const isoToday = ((new Date().getUTCDay() + 6) % 7) + 1
+    const notToday = (isoToday % 7) + 1
+    const chore = await as(db, user(p.parent), async () => {
+      const { rows } = await db.query<{ id: string }>(
+        `insert into public.chores (household_id, title, assigned_to, repeat, weekdays)
+         values ($1, 'Bins', $2, 'daily', $3::smallint[]) returning id`,
+        [p.household, p.child, [notToday]],
+      )
+      return rows[0]!.id
+    })
+    expect(await pgErrorCode(() => complete(p.child, chore))).toBe('22023')
+  })
+
+  it('take turns: only the person whose turn it is can do them', async () => {
+    const chore = await as(db, user(p.parent), async () => {
+      const { rows } = await db.query<{ id: string }>(
+        `insert into public.chores (household_id, title, repeat, rotation)
+         values ($1, 'Dishes', 'daily', $2::uuid[]) returning id`,
+        [p.household, [p.child, p.adult]],
+      )
+      return rows[0]!.id
+    })
+    const { rows } = await db.query<{ turn: string }>(
+      `select private.chore_assignee(c, private.chore_period_start(c.repeat, $2::date, c.created_at::date)) as turn
+       from public.chores c where c.id = $1`,
+      [chore, today],
+    )
+    const turn = rows[0]!.turn
+    const other = turn === p.child ? p.adult : p.child
+    expect(await pgErrorCode(() => complete(other, chore))).toBe('42501')
+    expect(await pgErrorCode(() => complete(turn, chore))).toBeUndefined()
+  })
+
+  it('take turns only between members of the household', async () => {
+    const code = await as(db, user(p.parent), () =>
+      pgErrorCode(() =>
+        db.query(
+          `insert into public.chores (household_id, title, repeat, rotation)
+           values ($1, 'Dishes', 'daily', $2::uuid[])`,
+          [p.household, [p.child, p.stranger]],
+        ),
+      ),
+    )
+    expect(code).toBe('22023')
   })
 
   it("can't be approved by children or guests", async () => {
@@ -1339,6 +1420,46 @@ describe('chores & rewards', () => {
     expect(await period('weekly', '2026-10-05')).toBe('2026-10-05')
     expect(await period('monthly', '2026-10-31')).toBe('2026-10-01')
     expect(await period('once', '2026-10-31')).toBe('2026-01-15')
+  })
+
+  it('turns: periods are counted from a fixed Monday', async () => {
+    // Same fixtures as packages/shared/src/chores/periods.test.ts.
+    const index = async (repeat: string, start: string) => {
+      const { rows } = await db.query<{ i: number }>(
+        'select private.chore_period_index($1, $2::date) as i',
+        [repeat, start],
+      )
+      return rows[0]!.i
+    }
+    expect(await index('daily', '2000-01-03')).toBe(0)
+    expect(await index('daily', '2026-10-01')).toBe(9768)
+    expect(await index('weekly', '2026-09-28')).toBe(1395)
+    expect(await index('monthly', '2026-10-01')).toBe(321)
+    expect(await index('once', '2026-10-01')).toBe(0)
+  })
+
+  it('leaving takes you out of rotations', async () => {
+    const leaver = await newAdult('Lou')
+    await accept(leaver, (await invite(p.parent, p.household, 'adult')).invite_token)
+    const chore = await as(db, user(p.parent), async () => {
+      const { rows } = await db.query<{ id: string }>(
+        `insert into public.chores (household_id, title, repeat, rotation)
+         values ($1, 'Hoover', 'weekly', $2::uuid[]) returning id`,
+        [p.household, [p.child, leaver]],
+      )
+      return rows[0]!.id
+    })
+    await as(db, user(leaver), () =>
+      db.query('delete from public.household_members where household_id = $1 and profile_id = $2', [
+        p.household,
+        leaver,
+      ]),
+    )
+    const { rows } = await db.query<{ rotation: string[] | null; assigned_to: string | null }>(
+      'select rotation, assigned_to from public.chores where id = $1',
+      [chore],
+    )
+    expect(rows[0]).toEqual({ rotation: null, assigned_to: p.child })
   })
 })
 
@@ -1477,6 +1598,29 @@ describe('privileges', () => {
     ['anon', 'private.has_household_permission(uuid,public.household_permission)'],
     ['authenticated', 'private.handle_new_user()'],
     ['authenticated', 'private.record_household_address_change()'],
+    ['anon', 'public.claim_push_jobs()'],
+    ['anon', 'public.drop_gone_push_subscriptions(uuid[])'],
+    ['authenticated', 'private.broadcast(text,text)'],
+    ['authenticated', 'private.notify(uuid,uuid,public.notification_kind,uuid,text,text,text)'],
+    ['authenticated', 'private.settle_notifications(uuid,public.notification_kind)'],
+    ['authenticated', 'private.guard_event()'],
+    ['authenticated', 'private.guard_meal_plan_entry()'],
+    ['anon', 'private.realtime_topic_allowed(text)'],
+    ['authenticated', 'private.run_scheduled()'],
+    ['authenticated', 'private.push_system_notifications()'],
+    ['authenticated', 'private.pay_allowances()'],
+    ['authenticated', 'private.remind_events(timestamptz,timestamptz)'],
+    ['anon', 'public.nudge_chore(uuid)'],
+    ['anon', 'public.pay_bill(uuid,bigint,uuid,uuid[],date)'],
+    ['anon', 'public.add_pocket_money(uuid,uuid,bigint,public.pocket_kind,text)'],
+    ['anon', 'public.swap_points_for_money(uuid,uuid,integer)'],
+    ['anon', 'public.start_group_chat(uuid,text,uuid[])'],
+    ['anon', 'public.direct_chat(uuid,uuid)'],
+    ['authenticated', 'private.conversation_participants(uuid)'],
+    [
+      'authenticated',
+      'private.notify_system(uuid,uuid,public.notification_kind,uuid,text,text,text)',
+    ],
   ])('%s cannot execute %s', async (role, fn) => {
     const { rows } = await db.query<{ ok: boolean }>(
       `select has_function_privilege($1, $2, 'execute') as ok`,
@@ -1490,6 +1634,15 @@ describe('privileges', () => {
     ['authenticated', 'public.household_address_history', 'insert'],
     ['anon', 'public.geo_cities', 'insert'],
     ['authenticated', 'public.geo_regions', 'delete'],
+    ['authenticated', 'public.notifications', 'insert'],
+    ['anon', 'public.events', 'select'],
+    ['anon', 'public.recipes', 'select'],
+    ['authenticated', 'private.push_claims', 'select'],
+    ['authenticated', 'private.sent_reminders', 'select'],
+    ['authenticated', 'public.pocket_transactions', 'insert'],
+    ['authenticated', 'public.conversations', 'insert'],
+    ['anon', 'public.messages', 'select'],
+    ['anon', 'public.documents', 'select'],
   ])('%s has no %s… %s privilege', async (role, table, privilege) => {
     const { rows } = await db.query<{ ok: boolean }>(
       `select has_table_privilege($1, $2, $3) as ok`,
@@ -1523,5 +1676,1325 @@ describe('privileges', () => {
       where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity
     `)
     expect(rows.map((r) => r.relname)).toEqual([])
+  })
+})
+
+describe('live updates', () => {
+  const p = { parent: '', adult: '', child: '', stranger: '', household: '' }
+
+  beforeAll(async () => {
+    p.parent = await newAdult('Lina')
+    p.adult = await newAdult('Luis')
+    p.stranger = await newAdult('Lou')
+    p.household = await newHousehold(p.parent, 'LiveHouse')
+    await accept(p.adult, (await invite(p.parent, p.household, 'adult')).invite_token)
+    p.child = await newChild(p.parent, p.household, 'Lia')
+  })
+
+  const lastMessageId = async () => {
+    const { rows } = await db.query<{ id: number | null }>(
+      'select max(id) as id from realtime.messages',
+    )
+    return Number(rows[0]?.id ?? 0)
+  }
+
+  const messagesSince = async (id: number) => {
+    const { rows } = await db.query<{ topic: string; payload: unknown }>(
+      'select topic, payload from realtime.messages where id > $1 order by id',
+      [id],
+    )
+    return rows
+  }
+
+  /** Whether a client may join `topic`, as Realtime checks it (the policy). */
+  const canListen = async (actorId: string, topic: string) => {
+    await db.query(`select set_config('realtime.topic', $1, false)`, [topic])
+    try {
+      const { rows } = await as(db, user(actorId), () =>
+        db.query('select id from realtime.messages limit 1'),
+      )
+      return rows.length > 0
+    } finally {
+      await db.query(`select set_config('realtime.topic', '', false)`)
+    }
+  }
+
+  it('let members listen to their household, and nobody else', async () => {
+    expect(await canListen(p.adult, `household:${p.household}`)).toBe(true)
+    expect(await canListen(p.child, `household:${p.household}`)).toBe(true)
+    expect(await canListen(p.stranger, `household:${p.household}`)).toBe(false)
+  })
+
+  it('let people listen only to their own channel', async () => {
+    expect(await canListen(p.child, `profile:${p.child}`)).toBe(true)
+    expect(await canListen(p.parent, `profile:${p.child}`)).toBe(false)
+  })
+
+  it('refuse malformed channel names', async () => {
+    expect(await canListen(p.adult, `household:${p.household}:extra`)).toBe(false)
+    expect(await canListen(p.adult, 'household:not-a-uuid')).toBe(false)
+    expect(await canListen(p.adult, `everyone:${p.household}`)).toBe(false)
+  })
+
+  it("can't be sent from a browser", async () => {
+    const code = await as(db, user(p.adult), () =>
+      pgErrorCode(() =>
+        db.query(`insert into realtime.messages (topic, payload) values ($1, '{}')`, [
+          `household:${p.household}`,
+        ]),
+      ),
+    )
+    expect(code).toBe('42501')
+  })
+
+  it('say what changed, never the content, once per change', async () => {
+    const before = await lastMessageId()
+    await as(db, user(p.parent), async () => {
+      const { rows } = await db.query<{ id: string }>(
+        `insert into public.lists (household_id, title) values ($1, 'Groceries') returning id`,
+        [p.household],
+      )
+      await db.query(
+        `insert into public.list_items (list_id, household_id, position, text)
+         select $1, $2, 0, t from unnest(array['Milk', 'Eggs', 'Bread']) t`,
+        [rows[0]!.id, p.household],
+      )
+    })
+    const sent = await messagesSince(before)
+    expect(sent.length).toBeGreaterThan(0)
+    for (const message of sent) {
+      expect(message.payload).toEqual({ scope: 'lists' })
+    }
+    // Three items in one statement: one message, not three.
+    expect(sent.filter((m) => m.topic === `household:${p.household}`).length).toBeLessThanOrEqual(2)
+  })
+
+  it("announce a child's private list only to the child", async () => {
+    const before = await lastMessageId()
+    await as(db, user(p.child), () =>
+      db.query(
+        `insert into public.lists (household_id, title, visibility) values ($1, 'Secret', 'private')`,
+        [p.household],
+      ),
+    )
+    const topics = (await messagesSince(before)).map((m) => m.topic)
+    expect(topics).toEqual([`profile:${p.child}`])
+  })
+})
+
+describe('notifications', () => {
+  const p = { parent: '', adult: '', child: '', stranger: '', household: '' }
+
+  beforeAll(async () => {
+    p.parent = await newAdult('Nora')
+    p.adult = await newAdult('Nils')
+    p.stranger = await newAdult('Ned')
+    p.household = await newHousehold(p.parent, 'NoticeHouse')
+    await accept(p.adult, (await invite(p.parent, p.household, 'adult')).invite_token)
+    p.child = await newChild(p.parent, p.household, 'Nia')
+  })
+
+  const inbox = async (profileId: string) => {
+    const { rows } = await db.query<{
+      id: string
+      kind: string
+      title: string
+      body: string | null
+      path: string
+      read_at: string | null
+      subject_id: string | null
+    }>(
+      `select id, kind, title, body, path, read_at, subject_id from public.notifications
+       where recipient_id = $1 and household_id = $2 order by created_at, id`,
+      [profileId, p.household],
+    )
+    return rows
+  }
+
+  const finishChore = async () => {
+    const chore = await as(db, user(p.parent), async () => {
+      const { rows } = await db.query<{ id: string }>(
+        `insert into public.chores (household_id, title, points, assigned_to, repeat, needs_approval)
+         values ($1, 'Feed the fish', 5, $2, 'once', true) returning id`,
+        [p.household, p.child],
+      )
+      return rows[0]!.id
+    })
+    return as(db, user(p.child), async () => {
+      const { rows } = await db.query<{ completion_id: string }>(
+        'select * from public.complete_chore($1, current_date)',
+        [chore],
+      )
+      return rows[0]!.completion_id
+    })
+  }
+
+  it('tell the people who manage chores when one needs approving, not the doer', async () => {
+    await finishChore()
+    expect((await inbox(p.parent)).map((n) => n.title)).toContain('Nia finished “Feed the fish”')
+    expect((await inbox(p.adult)).map((n) => n.kind)).toContain('chore_to_review')
+    expect(await inbox(p.child)).toEqual([])
+  })
+
+  it('settle for everyone once someone approves, and tell the doer', async () => {
+    const completion = await finishChore()
+    await as(db, user(p.parent), () =>
+      db.query('select public.review_chore_completion($1, true)', [completion]),
+    )
+    const adults = (await inbox(p.adult)).filter((n) => n.subject_id === completion)
+    expect(adults).toHaveLength(1)
+    expect(adults[0]?.read_at).not.toBeNull()
+    const childs = await inbox(p.child)
+    expect(childs.map((n) => [n.title, n.body])).toContainEqual([
+      '“Feed the fish” approved',
+      '+5 points',
+    ])
+    expect(childs[0]?.path).toBe(`/h/${p.household}/chores`)
+  })
+
+  it('are read only by the person they are for', async () => {
+    const { rows } = await as(db, user(p.adult), () =>
+      db.query('select id from public.notifications where recipient_id = $1', [p.parent]),
+    )
+    expect(rows).toEqual([])
+  })
+
+  it('can be marked read, but not rewritten or made up', async () => {
+    const mine = (await inbox(p.parent))[0]!
+    const read = await as(db, user(p.parent), () =>
+      db.query('update public.notifications set read_at = now() where id = $1', [mine.id]),
+    )
+    expect(read.affectedRows).toBe(1)
+    const rewrite = await as(db, user(p.parent), () =>
+      pgErrorCode(() =>
+        db.query(`update public.notifications set title = 'x' where id = $1`, [mine.id]),
+      ),
+    )
+    expect(rewrite).toBe('42501')
+    const forge = await as(db, user(p.parent), () =>
+      pgErrorCode(() =>
+        db.query(
+          `insert into public.notifications (recipient_id, household_id, kind, title, path)
+           values ($1, $2, 'item_assigned', 'Hi', $3)`,
+          [p.adult, p.household, `/h/${p.household}/lists`],
+        ),
+      ),
+    )
+    expect(forge).toBe('42501')
+  })
+
+  it('tell people about items put down for them, and points given', async () => {
+    await as(db, user(p.parent), async () => {
+      const { rows } = await db.query<{ id: string }>(
+        `insert into public.lists (household_id, title) values ($1, 'Jobs') returning id`,
+        [p.household],
+      )
+      await db.query(
+        `insert into public.list_items (list_id, household_id, position, text, assigned_to)
+         values ($1, $2, 0, 'Sweep the porch', $3)`,
+        [rows[0]!.id, p.household, p.adult],
+      )
+      await db.query(`select public.adjust_points($1, $2, 20, 'Helped with dinner')`, [
+        p.household,
+        p.child,
+      ])
+    })
+    expect((await inbox(p.adult)).map((n) => [n.title, n.body])).toContainEqual([
+      'For you: “Sweep the porch”',
+      'Jobs · from Nora Jones',
+    ])
+    expect((await inbox(p.child)).map((n) => [n.title, n.body])).toContainEqual([
+      'Nora Jones gave you 20 points',
+      'Helped with dinner',
+    ])
+  })
+
+  it("don't come from your own actions", async () => {
+    await as(db, user(p.parent), async () => {
+      const { rows } = await db.query<{ id: string }>(
+        `insert into public.lists (household_id, title) values ($1, 'Mine') returning id`,
+        [p.household],
+      )
+      await db.query(
+        `insert into public.list_items (list_id, household_id, position, text, assigned_to)
+         values ($1, $2, 0, 'Call the bank', $3)`,
+        [rows[0]!.id, p.household, p.parent],
+      )
+    })
+    expect((await inbox(p.parent)).map((n) => n.title)).not.toContain('For you: “Call the bank”')
+  })
+
+  it('go when you leave the household', async () => {
+    expect((await inbox(p.adult)).length).toBeGreaterThan(0)
+    await as(db, user(p.adult), () =>
+      db.query('delete from public.household_members where household_id = $1 and profile_id = $2', [
+        p.household,
+        p.adult,
+      ]),
+    )
+    expect(await inbox(p.adult)).toEqual([])
+  })
+})
+
+describe('push subscriptions', () => {
+  const p = { parent: '', adult: '', child: '', household: '' }
+  let childDevice = ''
+
+  beforeAll(async () => {
+    p.parent = await newAdult('Pam')
+    p.adult = await newAdult('Pete')
+    p.household = await newHousehold(p.parent, 'PushHouse')
+    await accept(p.adult, (await invite(p.parent, p.household, 'adult')).invite_token)
+    p.child = await newChild(p.parent, p.household, 'Pip')
+    childDevice = await as(db, user(p.child), async () => {
+      const { rows } = await db.query<{ id: string }>(
+        `insert into public.push_subscriptions (endpoint_hash, sealed)
+         values ($1, $2) returning id`,
+        ['a'.repeat(64), 'sealed-subscription-for-pip'],
+      )
+      return rows[0]!.id
+    })
+  })
+
+  const claim = (actorId: string) =>
+    as(db, user(actorId), async () => {
+      const { rows } = await db.query<{
+        subscription_id: string
+        recipient_id: string
+        title: string
+      }>('select * from public.claim_push_jobs()')
+      return rows
+    })
+
+  it('are visible only to their owner', async () => {
+    const { rows } = await as(db, user(p.parent), () =>
+      db.query('select id from public.push_subscriptions where id = $1', [childDevice]),
+    )
+    expect(rows).toEqual([])
+  })
+
+  it("can't be added for someone else", async () => {
+    const code = await as(db, user(p.parent), () =>
+      pgErrorCode(() =>
+        db.query(
+          `insert into public.push_subscriptions (profile_id, endpoint_hash, sealed)
+           values ($1, $2, 'sealed-subscription-x')`,
+          [p.child, 'b'.repeat(64)],
+        ),
+      ),
+    )
+    expect(code).toBe('42501')
+  })
+
+  it('are handed out once, only to the request whose change caused the push', async () => {
+    await as(db, user(p.parent), () =>
+      db.query(`select public.adjust_points($1, $2, 3, 'Tidy room')`, [p.household, p.child]),
+    )
+    expect(await claim(p.adult)).toEqual([])
+    const jobs = await claim(p.parent)
+    expect(jobs).toHaveLength(1)
+    expect(jobs[0]).toMatchObject({
+      subscription_id: childDevice,
+      recipient_id: p.child,
+      title: 'Pam Jones gave you 3 points',
+    })
+    expect(await claim(p.parent)).toEqual([])
+  })
+
+  it('are forgotten when gone, but only by the request just handed them', async () => {
+    const forget = (actorId: string) =>
+      as(db, user(actorId), () =>
+        db.query('select public.drop_gone_push_subscriptions($1)', [[childDevice]]),
+      )
+    const exists = async () =>
+      (await db.query('select 1 from public.push_subscriptions where id = $1', [childDevice])).rows
+        .length === 1
+    await forget(p.adult)
+    expect(await exists()).toBe(true)
+    await forget(p.parent)
+    expect(await exists()).toBe(false)
+  })
+})
+
+describe('calendar', () => {
+  const p = { parent: '', adult: '', guest: '', child: '', stranger: '', household: '' }
+
+  beforeAll(async () => {
+    p.parent = await newAdult('Cora')
+    p.adult = await newAdult('Cal')
+    p.guest = await newAdult('Cy')
+    p.stranger = await newAdult('Cole')
+    p.household = await newHousehold(p.parent, 'CalendarHouse')
+    await accept(p.adult, (await invite(p.parent, p.household, 'adult')).invite_token)
+    await accept(p.guest, (await invite(p.parent, p.household, 'guest')).invite_token)
+    p.child = await newChild(p.parent, p.household, 'Cleo')
+  })
+
+  const addEvent = (
+    actorId: string,
+    fields: { title?: string; visibility?: string; people?: string[]; sharedWith?: string[] } = {},
+  ) =>
+    as(db, user(actorId), async () => {
+      const { rows } = await db.query<{ id: string }>(
+        `insert into public.events
+           (household_id, title, starts_on, ends_on, start_time, time_zone, visibility, people, shared_with)
+         values ($1, $2, current_date, current_date, '15:30', 'Africa/Cairo', $3, $4, $5)
+         returning id`,
+        [
+          p.household,
+          fields.title ?? 'Dentist',
+          fields.visibility ?? 'household',
+          fields.people ?? [],
+          fields.sharedWith ?? [],
+        ],
+      )
+      return rows[0]!.id
+    })
+
+  const sees = async (actorId: string, eventId: string) => {
+    const { rows } = await as(db, user(actorId), () =>
+      db.query('select id from public.events where id = $1', [eventId]),
+    )
+    return rows.length === 1
+  }
+
+  it('show household events to members and guests, never outsiders', async () => {
+    const event = await addEvent(p.parent)
+    expect(await sees(p.adult, event)).toBe(true)
+    expect(await sees(p.guest, event)).toBe(true)
+    expect(await sees(p.stranger, event)).toBe(false)
+  })
+
+  it('are added by members who can post, not guests or outsiders', async () => {
+    expect(await pgErrorCode(() => addEvent(p.child))).toBeUndefined()
+    expect(await pgErrorCode(() => addEvent(p.guest))).toBe('42501')
+    expect(await pgErrorCode(() => addEvent(p.stranger))).toBe('42501')
+  })
+
+  it("keep a child's private event from their parents", async () => {
+    const event = await addEvent(p.child, { visibility: 'private', title: 'Surprise' })
+    expect(await sees(p.child, event)).toBe(true)
+    expect(await sees(p.parent, event)).toBe(false)
+  })
+
+  it('show selected-member events only to the people chosen', async () => {
+    const event = await addEvent(p.parent, {
+      visibility: 'selected_members',
+      sharedWith: [p.adult],
+    })
+    expect(await sees(p.adult, event)).toBe(true)
+    expect(await sees(p.child, event)).toBe(false)
+  })
+
+  it('can only be for people who can see them', async () => {
+    expect(
+      await pgErrorCode(() => addEvent(p.parent, { visibility: 'private', people: [p.child] })),
+    ).toBe('22023')
+    expect(await pgErrorCode(() => addEvent(p.parent, { people: [p.stranger] }))).toBe('22023')
+    expect(await pgErrorCode(() => addEvent(p.parent, { people: [p.child, p.child] }))).toBe(
+      '22023',
+    )
+  })
+
+  it('tell the people they are for', async () => {
+    await addEvent(p.parent, { title: 'Swim lesson', people: [p.child] })
+    const { rows } = await db.query<{ title: string }>(
+      `select title from public.notifications where recipient_id = $1 and kind = 'event_for_you'`,
+      [p.child],
+    )
+    expect(rows.map((r) => r.title)).toContain('For you: “Swim lesson”')
+  })
+
+  it('are edited by their creator or calendar managers; only the creator changes who sees them', async () => {
+    const event = await addEvent(p.parent)
+    const rename = (actorId: string) =>
+      as(db, user(actorId), () =>
+        db.query(`update public.events set title = 'Renamed' where id = $1`, [event]),
+      )
+    expect((await rename(p.adult)).affectedRows).toBe(1)
+    expect((await rename(p.child)).affectedRows).toBe(0)
+    const hide = await as(db, user(p.adult), () =>
+      pgErrorCode(() =>
+        db.query(`update public.events set visibility = 'private' where id = $1`, [event]),
+      ),
+    )
+    expect(hide).toBe('42501')
+  })
+
+  it('reject impossible dates and repeats', async () => {
+    const insert = (values: string) =>
+      as(db, user(p.parent), () =>
+        pgErrorCode(() =>
+          db.query(
+            `insert into public.events (household_id, title, starts_on, ends_on, start_time, end_time,
+               time_zone, repeat) values ${values}`,
+            [p.household],
+          ),
+        ),
+      )
+    expect(
+      await insert(`($1, 'x', current_date, current_date - 1, null, null, 'UTC', 'none')`),
+    ).toBe('23514')
+    expect(
+      await insert(`($1, 'x', current_date, current_date, '10:00', '09:00', 'UTC', 'none')`),
+    ).toBe('23514')
+    expect(
+      await insert(`($1, 'x', current_date, current_date + 1, null, null, 'UTC', 'daily')`),
+    ).toBe('23514')
+    expect(
+      await insert(`($1, 'x', current_date, current_date, null, null, 'Not a zone!', 'none')`),
+    ).toBe('23514')
+  })
+
+  it('leaving takes your private events and takes you off the rest', async () => {
+    const leaver = await newAdult('Cass')
+    await accept(leaver, (await invite(p.parent, p.household, 'adult')).invite_token)
+    const own = await addEvent(leaver, { visibility: 'private' })
+    const shared = await addEvent(p.parent, {
+      visibility: 'selected_members',
+      sharedWith: [leaver],
+      people: [leaver],
+    })
+    await as(db, user(leaver), () =>
+      db.query('delete from public.household_members where household_id = $1 and profile_id = $2', [
+        p.household,
+        leaver,
+      ]),
+    )
+    const { rows } = await db.query<{ id: string; people: string[]; shared_with: string[] }>(
+      'select id, people, shared_with from public.events where id = any($1)',
+      [[own, shared]],
+    )
+    expect(rows).toEqual([{ id: shared, people: [], shared_with: [] }])
+  })
+})
+
+describe('meal planning', () => {
+  const p = { parent: '', adult: '', child: '', stranger: '', household: '' }
+
+  beforeAll(async () => {
+    p.parent = await newAdult('Mia')
+    p.adult = await newAdult('Max')
+    p.stranger = await newAdult('Mo')
+    p.household = await newHousehold(p.parent, 'MealHouse')
+    await accept(p.adult, (await invite(p.parent, p.household, 'adult')).invite_token)
+    p.child = await newChild(p.parent, p.household, 'Milo')
+  })
+
+  const addRecipe = (actorId: string, ingredients: string[] = ['2 onions', ' ', 'Rice ']) =>
+    as(db, user(actorId), async () => {
+      const { rows } = await db.query<{ id: string; ingredients: string[] }>(
+        `insert into public.recipes (household_id, title, ingredients)
+         values ($1, 'Pilaf', $2) returning id, ingredients`,
+        [p.household, ingredients],
+      )
+      return rows[0]!
+    })
+
+  const plan = (
+    actorId: string,
+    fields: { recipeId?: string; title?: string; cookId?: string } = {},
+  ) =>
+    as(db, user(actorId), async () => {
+      const { rows } = await db.query<{ id: string }>(
+        `insert into public.meal_plan_entries (household_id, on_date, slot, recipe_id, title, cook_id)
+         values ($1, current_date, 'dinner', $2, $3, $4) returning id`,
+        [p.household, fields.recipeId ?? null, fields.title ?? null, fields.cookId ?? null],
+      )
+      return rows[0]!.id
+    })
+
+  it('keep the recipe box and plan inside the household', async () => {
+    const recipe = await addRecipe(p.parent)
+    await plan(p.parent, { recipeId: recipe.id })
+    const seen = await as(db, user(p.stranger), async () => [
+      ...(await db.query('select id from public.recipes where household_id = $1', [p.household]))
+        .rows,
+      ...(
+        await db.query('select id from public.meal_plan_entries where household_id = $1', [
+          p.household,
+        ])
+      ).rows,
+    ])
+    expect(seen).toEqual([])
+    expect(await pgErrorCode(() => plan(p.stranger, { title: 'Pizza' }))).toBe('42501')
+  })
+
+  it('tidy ingredients and refuse very long ones', async () => {
+    expect((await addRecipe(p.parent)).ingredients).toEqual(['2 onions', 'Rice'])
+    expect(await pgErrorCode(() => addRecipe(p.parent, ['x'.repeat(121)]))).toBe('22023')
+  })
+
+  it('need a recipe or a name', async () => {
+    expect(await pgErrorCode(() => plan(p.child))).toBe('23514')
+    expect(await pgErrorCode(() => plan(p.child, { title: 'Leftovers' }))).toBeUndefined()
+  })
+
+  it('cook only with household members, who are told', async () => {
+    expect(await pgErrorCode(() => plan(p.parent, { title: 'Tacos', cookId: p.stranger }))).toBe(
+      '22023',
+    )
+    await plan(p.parent, { title: 'Tacos', cookId: p.adult })
+    const { rows } = await db.query<{ title: string }>(
+      `select title from public.notifications where recipient_id = $1 and kind = 'meal_to_cook'`,
+      [p.adult],
+    )
+    expect(rows.map((r) => r.title)).toContain('You’re cooking: “Tacos”')
+  })
+
+  it('keep the name on the plan when a recipe is deleted', async () => {
+    const recipe = await addRecipe(p.parent)
+    const entry = await plan(p.parent, { recipeId: recipe.id })
+    const byOthers = await as(db, user(p.adult), () =>
+      db.query('delete from public.recipes where id = $1', [recipe.id]),
+    )
+    expect(byOthers.affectedRows).toBe(0)
+    await as(db, user(p.parent), () =>
+      db.query('delete from public.recipes where id = $1', [recipe.id]),
+    )
+    const { rows } = await db.query<{ recipe_id: string | null; title: string }>(
+      'select recipe_id, title from public.meal_plan_entries where id = $1',
+      [entry],
+    )
+    expect(rows[0]).toEqual({ recipe_id: null, title: 'Pilaf' })
+  })
+})
+
+describe('meal planning: tags and servings', () => {
+  const p = { parent: '', household: '' }
+
+  beforeAll(async () => {
+    p.parent = await newAdult('Tess')
+    p.household = await newHousehold(p.parent, 'TagHouse')
+  })
+
+  const addRecipe = (tags: string[]) =>
+    as(db, user(p.parent), async () => {
+      const { rows } = await db.query<{ tags: string[] }>(
+        `insert into public.recipes (household_id, title, tags) values ($1, 'Soup', $2) returning tags`,
+        [p.household, tags],
+      )
+      return rows[0]!.tags
+    })
+
+  it('keep each tag once, trimmed, in the order given', async () => {
+    expect(await addRecipe([' Quick ', 'quick', 'Vegetarian', ''])).toEqual(['Quick', 'Vegetarian'])
+  })
+
+  it('refuse long tags and too many', async () => {
+    expect(await pgErrorCode(() => addRecipe(['x'.repeat(31)]))).toBe('22023')
+    expect(
+      await pgErrorCode(() => addRecipe(Array.from({ length: 11 }, (_, i) => `Tag ${i}`))),
+    ).toBe('23514')
+  })
+
+  it('plan a meal for 1 to 50 people', async () => {
+    const plan = (servings: number) =>
+      as(db, user(p.parent), () =>
+        db.query(
+          `insert into public.meal_plan_entries (household_id, on_date, title, servings)
+           values ($1, current_date, 'Soup', $2)`,
+          [p.household, servings],
+        ),
+      )
+    expect(await pgErrorCode(() => plan(6))).toBeUndefined()
+    expect(await pgErrorCode(() => plan(51))).toBe('23514')
+  })
+})
+
+describe('reminders', () => {
+  const p = { parent: '', adult: '', child: '', household: '' }
+
+  beforeAll(async () => {
+    p.parent = await newAdult('Rhea')
+    p.adult = await newAdult('Remy')
+    p.household = await newHousehold(p.parent, 'ReminderHouse')
+    await accept(p.adult, (await invite(p.parent, p.household, 'adult')).invite_token)
+    p.child = await newChild(p.parent, p.household, 'Rio')
+    await db.query(`update public.households set time_zone = 'UTC' where id = $1`, [p.household])
+  })
+
+  /** Runs the timer as if it last ran five minutes ago. */
+  const tick = async () => {
+    await db.query(`update private.scheduler_state set last_run = now() - interval '5 minutes'`)
+    await db.query('select private.run_scheduled()')
+  }
+
+  const inbox = async (profileId: string, kind: string) => {
+    const { rows } = await db.query<{ title: string; body: string | null }>(
+      `select title, body from public.notifications
+       where recipient_id = $1 and household_id = $2 and kind = $3 order by created_at`,
+      [profileId, p.household, kind],
+    )
+    return rows
+  }
+
+  /** An event starting `minutes` from now (UTC), reminding `before` minutes ahead. */
+  const eventSoon = (
+    title: string,
+    minutes: number,
+    before: number[],
+    extra: { people?: string[]; repeat?: string; daysAgo?: number } = {},
+  ) =>
+    as(db, user(p.parent), async () => {
+      const { rows } = await db.query<{ id: string }>(
+        `insert into public.events
+           (household_id, title, starts_on, ends_on, start_time, time_zone, repeat, people, reminders)
+         select $1, $2, d - $7::int, d - $7::int, t, 'UTC', $5, $6, $4
+         from (select date_trunc('minute', now() at time zone 'UTC' + make_interval(mins => $3)) as at) s,
+              lateral (select s.at::date as d, s.at::time as t) x
+         returning id`,
+        [
+          p.household,
+          title,
+          minutes,
+          before,
+          extra.repeat ?? 'none',
+          extra.people ?? [],
+          extra.daysAgo ?? 0,
+        ],
+      )
+      return rows[0]!.id
+    })
+
+  it('remind the people an event is for, once, at the right time', async () => {
+    await eventSoon('Swim', 29, [30, 1440], { people: [p.child] })
+    await tick()
+    await tick()
+    const sent = await inbox(p.child, 'event_reminder')
+    expect(sent).toHaveLength(1)
+    expect(sent[0]?.title).toBe('Swim')
+    expect(sent[0]?.body).toMatch(/^(Today|Tomorrow) at \d\d:\d\d$/)
+    expect(await inbox(p.parent, 'event_reminder')).toEqual([])
+  })
+
+  it('remind whoever added it when an event is for everyone', async () => {
+    await eventSoon('Bins out', 9, [10])
+    await tick()
+    expect((await inbox(p.parent, 'event_reminder')).map((n) => n.title)).toContain('Bins out')
+  })
+
+  it('remind on repeats too', async () => {
+    await eventSoon('Piano', 14, [15], { repeat: 'weekly', daysAgo: 7, people: [p.adult] })
+    await tick()
+    expect((await inbox(p.adult, 'event_reminder')).map((n) => n.title)).toContain('Piano')
+  })
+
+  it('remind whoever’s turn it is when a chore is not done in time, not when it is', async () => {
+    const chore = async (title: string) =>
+      as(db, user(p.parent), async () => {
+        const { rows } = await db.query<{ id: string }>(
+          `insert into public.chores (household_id, title, points, assigned_to, repeat, remind_at)
+           values ($1, $2, 1, $3, 'daily', (now() at time zone 'UTC' - interval '1 minute')::time)
+           returning id`,
+          [p.household, title, p.child],
+        )
+        return rows[0]!.id
+      })
+    await chore('Feed the fish')
+    const done = await chore('Make the bed')
+    await as(db, user(p.child), () =>
+      db.query(`select public.complete_chore($1, (now() at time zone 'UTC')::date)`, [done]),
+    )
+    await tick()
+    const titles = (await inbox(p.child, 'chore_reminder')).map((n) => n.title)
+    expect(titles).toContain('Not done yet: “Feed the fish”')
+    expect(titles).not.toContain('Not done yet: “Make the bed”')
+  })
+
+  it('let people who manage chores nudge, at most once an hour', async () => {
+    const chore = await as(db, user(p.parent), async () => {
+      const { rows } = await db.query<{ id: string }>(
+        `insert into public.chores (household_id, title, points, assigned_to, repeat)
+         values ($1, 'Water plants', 1, $2, 'daily') returning id`,
+        [p.household, p.child],
+      )
+      return rows[0]!.id
+    })
+    const nudge = (actorId: string) =>
+      as(db, user(actorId), () =>
+        pgErrorCode(() => db.query('select public.nudge_chore($1)', [chore])),
+      )
+    expect(await nudge(p.child)).toBe('42501')
+    expect(await nudge(p.parent)).toBeUndefined()
+    expect(await nudge(p.adult)).toBe('54000')
+    expect((await inbox(p.child, 'chore_nudge')).map((n) => n.title)).toContain(
+      'Rhea Jones reminded you: “Water plants”',
+    )
+  })
+
+  it('send pushes for reminders to the API, sealed and signed, and forget gone devices', async () => {
+    // Stand-ins for pg_net and Supabase Vault.
+    await db.exec(`
+      create schema net;
+      create table net.requests (id bigint generated always as identity primary key, url text, body jsonb, headers jsonb);
+      create function net.http_post(url text, body jsonb default '{}', params jsonb default '{}',
+        headers jsonb default '{}', timeout_milliseconds integer default 5000)
+      returns bigint language sql as $$
+        insert into net.requests (url, body, headers) values (url, body, headers) returning id
+      $$;
+      create table net._http_response (id bigint primary key, content text);
+      create schema vault;
+      create table vault.secrets_store (name text, decrypted_secret text);
+      create view vault.decrypted_secrets as select name, decrypted_secret from vault.secrets_store;
+      insert into vault.secrets_store values
+        ('households_push_url', 'https://api.example/internal/push'),
+        ('households_push_secret', 's3cret-value');
+    `)
+    const device = await as(db, user(p.adult), async () => {
+      const { rows } = await db.query<{ id: string }>(
+        `insert into public.push_subscriptions (endpoint_hash, sealed) values ($1, 'sealed-subscription-for-remy')
+         returning id`,
+        ['c'.repeat(64)],
+      )
+      return rows[0]!.id
+    })
+    await eventSoon('Dentist', 59, [60], { people: [p.adult] })
+    await tick()
+
+    const { rows } = await db.query<{
+      id: number
+      url: string
+      body: { jobs: unknown[] }
+      headers: Record<string, string>
+    }>('select id, url, body, headers from net.requests order by id')
+    const request = rows.at(-1)!
+    expect(request.url).toBe('https://api.example/internal/push')
+    expect(request.headers.Authorization).toBe('Bearer s3cret-value')
+    expect(request.body.jobs).toContainEqual(
+      expect.objectContaining({
+        subscription_id: device,
+        sealed: 'sealed-subscription-for-remy',
+        title: 'Dentist',
+      }),
+    )
+
+    // The API answers that the device is gone: the next run forgets it.
+    await db.query('insert into net._http_response (id, content) values ($1, $2)', [
+      request.id,
+      JSON.stringify({ gone: [device] }),
+    ])
+    await tick()
+    const left = await db.query('select 1 from public.push_subscriptions where id = $1', [device])
+    expect(left.rows).toEqual([])
+  })
+})
+
+describe('money', () => {
+  const p = { parent: '', adult: '', child: '', sibling: '', stranger: '', household: '' }
+
+  beforeAll(async () => {
+    p.parent = await newAdult('Mona')
+    p.adult = await newAdult('Milo')
+    p.stranger = await newAdult('Mack')
+    p.household = await newHousehold(p.parent, 'MoneyHouse')
+    await accept(p.adult, (await invite(p.parent, p.household, 'adult')).invite_token)
+    p.child = await newChild(p.parent, p.household, 'Mae')
+    p.sibling = await newChild(p.parent, p.household, 'Moe')
+    await db.query(`update public.households set time_zone = 'UTC' where id = $1`, [p.household])
+  })
+
+  const addExpense = (actorId: string, split: string[] = [], amount = 4500) =>
+    as(db, user(actorId), async () => {
+      const { rows } = await db.query<{ id: string }>(
+        `insert into public.expenses (household_id, title, amount_minor, paid_by, split_between)
+         values ($1, 'Groceries', $2, $3, $4) returning id`,
+        [p.household, amount, actorId, split],
+      )
+      return rows[0]!.id
+    })
+
+  const sees = async (actorId: string, sql: string) =>
+    (await as(db, user(actorId), () => db.query(sql, [p.household]))).rows.length
+
+  it('are only for the grown-ups who can see money', async () => {
+    await addExpense(p.parent, [p.parent, p.adult])
+    const expenses = 'select id from public.expenses where household_id = $1'
+    expect(await sees(p.adult, expenses)).toBeGreaterThan(0)
+    expect(await sees(p.child, expenses)).toBe(0)
+    expect(await sees(p.stranger, expenses)).toBe(0)
+    expect(await pgErrorCode(() => addExpense(p.child))).toBe('42501')
+  })
+
+  it('split only between members of the household, each once', async () => {
+    expect(await pgErrorCode(() => addExpense(p.parent, [p.stranger]))).toBe('22023')
+    expect(await pgErrorCode(() => addExpense(p.parent, [p.adult, p.adult]))).toBe('22023')
+  })
+
+  it('record a bill when it is paid and move it to its next date', async () => {
+    const bill = await as(db, user(p.parent), async () => {
+      const { rows } = await db.query<{ id: string }>(
+        `insert into public.bills (household_id, title, amount_minor, repeat, next_due)
+         values ($1, 'Rent', 120000, 'monthly', '2026-10-31') returning id`,
+        [p.household],
+      )
+      return rows[0]!.id
+    })
+    await as(db, user(p.adult), () =>
+      db.query(`select public.pay_bill($1, null, null, null, '2026-10-30')`, [bill]),
+    )
+    const { rows } = await db.query<{ next_due: string; paid: string }>(
+      `select b.next_due::text,
+              (select count(*)::text from public.expenses e where e.bill_id = b.id) as paid
+       from public.bills b where b.id = $1`,
+      [bill],
+    )
+    expect(rows[0]).toEqual({ next_due: '2026-11-30', paid: '1' })
+  })
+
+  it("keep each child's pocket money to them and the people who manage money", async () => {
+    await as(db, user(p.parent), () =>
+      db.query(`select public.add_pocket_money($1, $2, 500, 'gift', 'Birthday')`, [
+        p.household,
+        p.child,
+      ]),
+    )
+    const theirs = 'select id from public.pocket_transactions where household_id = $1'
+    expect(await sees(p.child, theirs)).toBe(1)
+    expect(await sees(p.sibling, theirs)).toBe(0)
+    expect(await sees(p.adult, theirs)).toBe(1)
+    const notified = await db.query<{ title: string }>(
+      `select title from public.notifications where recipient_id = $1 and kind = 'pocket_money'`,
+      [p.child],
+    )
+    expect(notified.rows.map((r) => r.title)).toContain('Mona Jones gave you 5.00 USD')
+  })
+
+  it("can't be given to yourself, by children, or spent below zero", async () => {
+    const give = (actorId: string, profileId: string, kind = 'gift', amount = 100) =>
+      as(db, user(actorId), () =>
+        pgErrorCode(() =>
+          db.query(`select public.add_pocket_money($1, $2, $3, $4, null)`, [
+            p.household,
+            profileId,
+            amount,
+            kind,
+          ]),
+        ),
+      )
+    expect(await give(p.parent, p.parent)).toBe('42501')
+    expect(await give(p.child, p.sibling)).toBe('42501')
+    expect(await give(p.parent, p.child, 'spend', 100000)).toBe('22023')
+    expect(await give(p.parent, p.child, 'spend', 200)).toBeUndefined()
+  })
+
+  it('turn points into pocket money at the household rate', async () => {
+    const swap = () =>
+      as(db, user(p.parent), () =>
+        db.query<{ amount: string }>(
+          `select public.swap_points_for_money($1, $2, 200)::text as amount`,
+          [p.household, p.sibling],
+        ),
+      )
+    await as(db, user(p.parent), () =>
+      db.query(`select public.adjust_points($1, $2, 250, 'Good week')`, [p.household, p.sibling]),
+    )
+    expect(await pgErrorCode(swap)).toBe('22023') // no rate yet
+    await db.query(`update public.households set points_value_minor = 100 where id = $1`, [
+      p.household,
+    ])
+    expect((await swap()).rows[0]?.amount).toBe('200')
+    const points = await db.query<{ balance: string }>(
+      `select sum(delta)::text as balance from public.points_ledger where profile_id = $1`,
+      [p.sibling],
+    )
+    expect(points.rows[0]?.balance).toBe('50')
+    expect(await pgErrorCode(swap)).toBe('22023') // only 50 left
+  })
+
+  it('pay allowances once on their day', async () => {
+    await as(db, user(p.parent), () =>
+      db.query(
+        `insert into public.pocket_allowances (household_id, profile_id, amount_minor, weekday)
+         values ($1, $2, 300, extract(isodow from now() at time zone 'UTC'))`,
+        [p.household, p.sibling],
+      ),
+    )
+    await db.query('select private.pay_allowances()')
+    await db.query('select private.pay_allowances()')
+    const { rows } = await db.query<{ count: string; hour: number }>(
+      `select count(*)::text as count, extract(hour from now() at time zone 'UTC')::int as hour
+       from public.pocket_transactions where profile_id = $1 and kind = 'allowance'`,
+      [p.sibling],
+    )
+    // Paid from 08:00 at home: once if the test runs after that, else not yet.
+    expect(rows[0]?.count).toBe(rows[0]!.hour >= 8 ? '1' : '0')
+  })
+
+  it("can't set up your own allowance", async () => {
+    const code = await as(db, user(p.parent), () =>
+      pgErrorCode(() =>
+        db.query(
+          `insert into public.pocket_allowances (household_id, profile_id, amount_minor)
+           values ($1, $2, 100)`,
+          [p.household, p.parent],
+        ),
+      ),
+    )
+    expect(code).toBe('42501')
+  })
+
+  it('let children set their own savings goals, not each other’s', async () => {
+    const goal = (actorId: string, profileId: string) =>
+      as(db, user(actorId), () =>
+        pgErrorCode(() =>
+          db.query(
+            `insert into public.savings_goals (household_id, profile_id, title, target_minor)
+             values ($1, $2, 'Lego', 4000)`,
+            [p.household, profileId],
+          ),
+        ),
+      )
+    expect(await goal(p.child, p.child)).toBeUndefined()
+    expect(await goal(p.child, p.sibling)).toBe('42501')
+  })
+})
+
+describe('family chat', () => {
+  const p = {
+    parent: '',
+    adult: '',
+    guest: '',
+    child: '',
+    sibling: '',
+    stranger: '',
+    household: '',
+    householdChat: '',
+  }
+
+  beforeAll(async () => {
+    p.parent = await newAdult('Tia')
+    p.adult = await newAdult('Tom')
+    p.guest = await newAdult('Tess')
+    p.stranger = await newAdult('Ty')
+    p.household = await newHousehold(p.parent, 'ChatHouse')
+    await accept(p.adult, (await invite(p.parent, p.household, 'adult')).invite_token)
+    await accept(p.guest, (await invite(p.parent, p.household, 'guest')).invite_token)
+    p.child = await newChild(p.parent, p.household, 'Tad')
+    p.sibling = await newChild(p.parent, p.household, 'Tia Jr')
+    const { rows } = await db.query<{ id: string }>(
+      `select id from public.conversations where household_id = $1 and kind = 'household'`,
+      [p.household],
+    )
+    p.householdChat = rows[0]!.id
+  })
+
+  const send = (
+    actorId: string,
+    conversationId: string,
+    body: string,
+    image: string | null = null,
+  ) =>
+    as(db, user(actorId), async () => {
+      const { rows } = await db.query<{ id: string }>(
+        `insert into public.messages (conversation_id, household_id, body, image_path)
+         values ($1, $2, $3, $4) returning id`,
+        [conversationId, p.household, body, image],
+      )
+      return rows[0]!.id
+    })
+
+  const direct = (actorId: string, otherId: string) =>
+    as(db, user(actorId), async () => {
+      const { rows } = await db.query<{ id: string }>('select public.direct_chat($1, $2) as id', [
+        p.household,
+        otherId,
+      ])
+      return rows[0]!.id
+    })
+
+  const sees = async (actorId: string, conversationId: string) =>
+    (
+      await as(db, user(actorId), () =>
+        db.query('select id from public.messages where conversation_id = $1', [conversationId]),
+      )
+    ).rows.length
+
+  it('give every household one chat that all its members read', async () => {
+    await send(p.adult, p.householdChat, 'Dinner at 7')
+    expect(await sees(p.child, p.householdChat)).toBe(1)
+    expect(await sees(p.guest, p.householdChat)).toBe(1)
+    expect(await sees(p.stranger, p.householdChat)).toBe(0)
+  })
+
+  it('let guests read the household chat but not write', async () => {
+    expect(await pgErrorCode(() => send(p.guest, p.householdChat, 'Hi'))).toBe('42501')
+  })
+
+  it("keep children's direct chats to the two of them, parents included", async () => {
+    const chat = await direct(p.child, p.sibling)
+    await send(p.child, chat, 'Secret plan')
+    expect(await sees(p.sibling, chat)).toBe(1)
+    expect(await sees(p.parent, chat)).toBe(0)
+    expect(await direct(p.sibling, p.child)).toBe(chat)
+  })
+
+  it('never reach anyone outside the household', async () => {
+    expect(await pgErrorCode(() => direct(p.child, p.stranger))).toBe('42501')
+    const group = await as(db, user(p.child), () =>
+      pgErrorCode(() =>
+        db.query(`select public.start_group_chat($1, 'Gang', $2)`, [p.household, [p.stranger]]),
+      ),
+    )
+    expect(group).toBe('22023')
+  })
+
+  it('keep one notification per conversation, up to date, and none when muted', async () => {
+    const chat = await direct(p.adult, p.parent)
+    await send(p.adult, chat, 'First')
+    await send(p.adult, chat, 'Second')
+    const unread = async () =>
+      (
+        await db.query<{ body: string }>(
+          `select body from public.notifications
+           where recipient_id = $1 and kind = 'chat_message' and subject_id = $2 and read_at is null`,
+          [p.parent, chat],
+        )
+      ).rows
+    expect(await unread()).toEqual([{ body: 'Second' }])
+
+    await as(db, user(p.parent), () => db.query('select public.mark_conversation_read($1)', [chat]))
+    expect(await unread()).toEqual([])
+    await as(db, user(p.parent), () =>
+      db.query('select public.mute_conversation($1, true)', [chat]),
+    )
+    await send(p.adult, chat, 'Third')
+    expect(await unread()).toEqual([])
+  })
+
+  it('let authors edit, moderators delete in the household chat, and forget deleted text', async () => {
+    const message = await send(p.adult, p.householdChat, 'Oops, wrong chat')
+    const edit = await as(db, user(p.parent), () =>
+      pgErrorCode(() =>
+        db.query(`update public.messages set body = 'Changed' where id = $1`, [message]),
+      ),
+    )
+    expect(edit).toBe('42501')
+    await as(db, user(p.parent), () =>
+      db.query('update public.messages set deleted_at = now() where id = $1', [message]),
+    )
+    const { rows } = await db.query<{ body: string; deleted: boolean }>(
+      'select body, deleted_at is not null as deleted from public.messages where id = $1',
+      [message],
+    )
+    expect(rows[0]).toEqual({ body: '', deleted: true })
+  })
+
+  it('show chat photos only to the people in the conversation', async () => {
+    const chat = await direct(p.child, p.sibling)
+    const path = `${p.household}/chat/${chat}/photo-1.jpg`
+    const upload = (actorId: string, name: string) =>
+      as(db, user(actorId), () =>
+        pgErrorCode(() =>
+          db.query(`insert into storage.objects (bucket_id, name) values ('household-media', $1)`, [
+            name,
+          ]),
+        ),
+      )
+    expect(await upload(p.child, path)).toBeUndefined()
+    expect(await upload(p.parent, `${p.household}/chat/${chat}/sneaky.jpg`)).toBe('42501')
+    const visible = async (actorId: string) =>
+      (
+        await as(db, user(actorId), () =>
+          db.query('select id from storage.objects where name = $1', [path]),
+        )
+      ).rows.length
+    // Not until it's sent; then to the conversation only; gone once deleted.
+    expect(await visible(p.child)).toBe(1)
+    expect(await visible(p.sibling)).toBe(0)
+    const message = await send(p.child, chat, '', path)
+    expect(await visible(p.sibling)).toBe(1)
+    expect(await visible(p.parent)).toBe(0)
+    await as(db, user(p.child), () =>
+      db.query('update public.messages set deleted_at = now() where id = $1', [message]),
+    )
+    expect(await visible(p.sibling)).toBe(0)
+    expect(
+      await pgErrorCode(() =>
+        send(p.child, chat, '', `${p.household}/chat/${p.householdChat}/x.jpg`),
+      ),
+    ).toBe('22023')
+  })
+
+  it('take people out of conversations when they leave the household', async () => {
+    const chat = await direct(p.adult, p.child)
+    await send(p.child, chat, 'Hi')
+    await as(db, user(p.adult), () =>
+      db.query('delete from public.household_members where household_id = $1 and profile_id = $2', [
+        p.household,
+        p.adult,
+      ]),
+    )
+    expect(await sees(p.adult, chat)).toBe(0)
+    expect(await sees(p.child, chat)).toBe(1)
+  })
+})
+
+describe('document vault', () => {
+  const p = { parent: '', adult: '', child: '', stranger: '', household: '' }
+
+  beforeAll(async () => {
+    p.parent = await newAdult('Vera')
+    p.adult = await newAdult('Vic')
+    p.stranger = await newAdult('Val')
+    p.household = await newHousehold(p.parent, 'VaultHouse')
+    await accept(p.adult, (await invite(p.parent, p.household, 'adult')).invite_token)
+    p.child = await newChild(p.parent, p.household, 'Vin')
+    await db.query(`update public.households set time_zone = 'UTC' where id = $1`, [p.household])
+  })
+
+  const addDocument = (
+    actorId: string,
+    fields: {
+      title?: string
+      visibility?: string
+      sharedWith?: string[]
+      people?: string[]
+      expiresOn?: string | null
+      remindDays?: number
+    } = {},
+  ) =>
+    as(db, user(actorId), async () => {
+      const { rows } = await db.query<{ id: string }>(
+        `insert into public.documents
+           (household_id, title, category, visibility, shared_with, people, expires_on, remind_days)
+         values ($1, $2, 'Identity', $3, $4, $5, $6, $7) returning id`,
+        [
+          p.household,
+          fields.title ?? 'Passport',
+          fields.visibility ?? 'household',
+          fields.sharedWith ?? [],
+          fields.people ?? [],
+          fields.expiresOn ?? null,
+          fields.remindDays ?? 30,
+        ],
+      )
+      return rows[0]!.id
+    })
+
+  const sees = async (actorId: string, documentId: string) =>
+    (
+      await as(db, user(actorId), () =>
+        db.query('select id from public.documents where id = $1', [documentId]),
+      )
+    ).rows.length === 1
+
+  it('show household documents to members who can see documents, not children or outsiders', async () => {
+    const document = await addDocument(p.parent, { title: 'Home insurance' })
+    expect(await sees(p.adult, document)).toBe(true)
+    expect(await sees(p.child, document)).toBe(false)
+    expect(await sees(p.stranger, document)).toBe(false)
+    expect(await pgErrorCode(() => addDocument(p.child))).toBe('42501')
+  })
+
+  it('keep private documents to whoever added them', async () => {
+    const document = await addDocument(p.adult, { visibility: 'private', title: 'My payslip' })
+    expect(await sees(p.adult, document)).toBe(true)
+    expect(await sees(p.parent, document)).toBe(false)
+  })
+
+  it('reach the people a document is shared with, children included', async () => {
+    const document = await addDocument(p.parent, {
+      visibility: 'selected_members',
+      sharedWith: [p.child],
+      people: [p.child],
+    })
+    expect(await sees(p.child, document)).toBe(true)
+    expect(await sees(p.adult, document)).toBe(false)
+  })
+
+  it('open files only for people who can see the document; only editors add them', async () => {
+    const document = await addDocument(p.parent, {
+      visibility: 'selected_members',
+      sharedWith: [p.child],
+    })
+    const path = `${p.household}/documents/${document}/scan-1.pdf`
+    const upload = (actorId: string, name: string) =>
+      as(db, user(actorId), () =>
+        pgErrorCode(() =>
+          db.query(
+            `insert into storage.objects (bucket_id, name) values ('household-documents', $1)`,
+            [name],
+          ),
+        ),
+      )
+    expect(await upload(p.parent, path)).toBeUndefined()
+    expect(await upload(p.child, `${p.household}/documents/${document}/mine.pdf`)).toBe('42501')
+    expect(await upload(p.adult, `${p.household}/documents/${document}/x.pdf`)).toBe('42501')
+    const opens = async (actorId: string) =>
+      (
+        await as(db, user(actorId), () =>
+          db.query('select id from storage.objects where name = $1', [path]),
+        )
+      ).rows.length
+    expect(await opens(p.child)).toBe(1)
+    expect(await opens(p.adult)).toBe(0)
+
+    const record = (storagePath: string) =>
+      as(db, user(p.parent), () =>
+        pgErrorCode(() =>
+          db.query(
+            `insert into public.document_files
+               (document_id, household_id, storage_path, file_name, mime_type, size_bytes)
+             values ($1, $2, $3, 'scan.pdf', 'application/pdf', 1000)`,
+            [document, p.household, storagePath],
+          ),
+        ),
+      )
+    expect(await record(path)).toBeUndefined()
+    expect(await record(`${p.household}/documents/${p.household}/other.pdf`)).toBe('22023')
+  })
+
+  it('let only the person who added it change who sees it', async () => {
+    const document = await addDocument(p.adult)
+    const hide = await as(db, user(p.parent), () =>
+      pgErrorCode(() =>
+        db.query(`update public.documents set visibility = 'private' where id = $1`, [document]),
+      ),
+    )
+    expect(hide).toBe('42501')
+  })
+
+  it('remind whoever added it, and its people who can see it, before it expires', async () => {
+    const document = await addDocument(p.parent, {
+      title: 'Vin’s passport',
+      visibility: 'selected_members',
+      sharedWith: [p.child],
+      people: [p.child],
+      expiresOn: '2027-03-12',
+      remindDays: 30,
+    })
+    await db.query(
+      `select private.remind_documents('2027-02-10 08:59:00+00', '2027-02-10 09:01:00+00')`,
+    )
+    const { rows } = await db.query<{ recipient_id: string; title: string }>(
+      `select recipient_id, title from public.notifications
+       where subject_id = $1 and kind = 'document_expiring'`,
+      [document],
+    )
+    expect(rows.map((r) => r.recipient_id).sort()).toEqual([p.parent, p.child].sort())
+    expect(rows[0]?.title).toBe('Expires soon: Vin’s passport')
+  })
+
+  it('leaving takes your private documents and takes you off the rest', async () => {
+    const leaver = await newAdult('Vaughn')
+    await accept(leaver, (await invite(p.parent, p.household, 'adult')).invite_token)
+    const own = await addDocument(leaver, { visibility: 'private' })
+    const shared = await addDocument(p.parent, {
+      visibility: 'selected_members',
+      sharedWith: [leaver],
+      people: [leaver],
+    })
+    await as(db, user(leaver), () =>
+      db.query('delete from public.household_members where household_id = $1 and profile_id = $2', [
+        p.household,
+        leaver,
+      ]),
+    )
+    const { rows } = await db.query<{ id: string; people: string[]; shared_with: string[] }>(
+      'select id, people, shared_with from public.documents where id = any($1)',
+      [[own, shared]],
+    )
+    expect(rows).toEqual([{ id: shared, people: [], shared_with: [] }])
   })
 })

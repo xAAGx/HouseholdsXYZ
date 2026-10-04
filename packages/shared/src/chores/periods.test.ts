@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
-import { addDays, chorePeriodStart, currentStreak, localDate } from './periods'
+import {
+  addDays,
+  choreAssignee,
+  chorePeriodIndex,
+  chorePeriodStart,
+  currentStreak,
+  isChoreOn,
+  isoWeekday,
+  localDate,
+} from './periods'
 
 describe('chorePeriodStart', () => {
   // Same fixtures as the database test ("periods: weeks start on Monday…"),
@@ -19,6 +28,55 @@ describe('chorePeriodStart', () => {
   it('handles leap days and year ends', () => {
     expect(chorePeriodStart('weekly', '2028-02-29', '2028-01-01')).toBe('2028-02-28')
     expect(chorePeriodStart('weekly', '2027-01-01', '2026-01-01')).toBe('2026-12-28')
+  })
+})
+
+describe('turns', () => {
+  // Same fixtures as the database test ("turns: periods are counted…").
+  it.each([
+    ['daily', '2000-01-03', 0],
+    ['daily', '2026-10-01', 9768],
+    ['weekly', '2026-09-28', 1395],
+    ['monthly', '2026-10-01', 321],
+    ['once', '2026-10-01', 0],
+  ] as const)('%s period starting %s is number %i', (repeat, start, index) => {
+    expect(chorePeriodIndex(repeat, start)).toBe(index)
+  })
+
+  it('go round in order, one person per period', () => {
+    const chore = {
+      repeat: 'daily',
+      assignedTo: null,
+      rotation: ['a', 'b', 'c'],
+      weekdays: null,
+    } as const
+    const days = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04']
+    const turns = days.map((day) => choreAssignee(chore, day))
+    expect(new Set(turns.slice(0, 3)).size).toBe(3)
+    expect(turns[3]).toBe(turns[0])
+  })
+
+  it('fall back to the fixed assignee without a rotation', () => {
+    expect(
+      choreAssignee(
+        { repeat: 'weekly', assignedTo: 'x', rotation: null, weekdays: null },
+        '2026-09-28',
+      ),
+    ).toBe('x')
+  })
+})
+
+describe('weekdays', () => {
+  it('limit daily chores to the chosen days', () => {
+    const weekdaysOnly = {
+      repeat: 'daily',
+      assignedTo: null,
+      rotation: null,
+      weekdays: [1, 2, 3, 4, 5],
+    } as const
+    expect(isChoreOn(weekdaysOnly, '2026-10-02')).toBe(true) // Friday
+    expect(isChoreOn(weekdaysOnly, '2026-10-03')).toBe(false) // Saturday
+    expect(isoWeekday('2026-10-04')).toBe(7)
   })
 })
 

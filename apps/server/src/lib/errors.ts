@@ -41,6 +41,18 @@ export function toApiError(error: PostgrestError): ApiError {
       return new ApiError('CONFLICT', 'You’ve reached the limit for this.', undefined, {
         cause: error,
       })
+    // A table or function the code expects isn't in the database yet: a
+    // migration hasn't been pushed. Logged as a 503 so it's easy to spot.
+    case 'PGRST205': // table not in PostgREST's schema cache
+    case 'PGRST202': // function not in PostgREST's schema cache
+    case '42P01': // undefined_table
+    case '42883': // undefined_function
+      return new ApiError(
+        'UNAVAILABLE',
+        'This part of the app isn’t set up yet. Please try again later.',
+        undefined,
+        { cause: error },
+      )
     case 'P0002': // no_data_found (e.g. an invite link that's used up or expired)
     case 'PGRST116': // .single() found no row, or a row RLS hides
       return new ApiError('NOT_FOUND', undefined, undefined, { cause: error })

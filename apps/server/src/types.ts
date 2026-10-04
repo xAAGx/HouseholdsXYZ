@@ -2,6 +2,8 @@ import type { HouseholdsSupabaseClient } from '@households/db'
 import type { RequestIdVariables } from 'hono/request-id'
 
 import type { AdminAuth } from './lib/admin-auth'
+import type { PageFetcher } from './lib/pages'
+import type { PushService } from './lib/push'
 
 export interface AuthContext {
   userId: string
@@ -18,5 +20,9 @@ export interface AppEnv {
     supabase: HouseholdsSupabaseClient
     /** Secret-key operations (lib/admin-auth.ts); null when switched off. */
     adminAuth: AdminAuth | null
+    /** Push notifications (lib/push.ts); null when not configured. */
+    push: PushService | null
+    /** Fetches public web pages (recipe import); null when switched off. */
+    pages: PageFetcher | null
   }
 }

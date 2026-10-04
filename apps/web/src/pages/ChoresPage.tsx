@@ -21,6 +21,7 @@ import { useChoreActions, useChoreBoard } from '../features/chores/queries'
 import { RewardsCard } from '../features/chores/RewardsCard'
 import { streakOf } from '../features/chores/streaks'
 import { TodayCard } from '../features/chores/TodayCard'
+import { WeekCard } from '../features/chores/WeekCard'
 import { HouseholdSubHeader, MemberGate } from '../features/households/MemberGate'
 import { memberNames, type MemberView } from '../features/households/member-view'
 import { formatDay } from '../lib/format'
@@ -59,10 +60,13 @@ function Chores({ view, basePath }: { view: MemberView; basePath: string }) {
             <>
               <YourPoints board={board.data} me={me} />
               {board.data.canManage && (
-                <ApprovalsCard board={board.data} names={names} actions={actions} />
+                <ApprovalsCard board={board.data} me={me} names={names} actions={actions} />
               )}
               <TopAligned $columns={2} $gap={5}>
-                <TodayCard board={board.data} me={me} names={names} actions={actions} />
+                <Stack $gap={5}>
+                  <TodayCard board={board.data} me={me} names={names} actions={actions} />
+                  <WeekCard board={board.data} />
+                </Stack>
                 <Stack $gap={5}>
                   <RewardsCard board={board.data} me={me} actions={actions} />
                   <PointsCard board={board.data} members={view.members} />

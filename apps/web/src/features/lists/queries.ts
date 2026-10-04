@@ -9,12 +9,14 @@ import type {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api } from '../../lib/api'
+import { liveInterval } from '../live/live-status'
 
-/** How often an open list checks for other people's changes. */
-const LIVE_INTERVAL_MS = 10_000
+/** How often an open list checks for other people's changes (without live updates). */
+const LIVE_INTERVAL_MS = liveInterval(10_000)
 
 export const listKeys = {
   all: (householdId: string) => ['lists', householdId] as const,
+  assigned: (householdId: string) => [...listKeys.all(householdId), 'assigned'] as const,
   index: (householdId: string, archived: boolean) =>
     [...listKeys.all(householdId), 'index', archived] as const,
   detail: (householdId: string, listId: string) =>
@@ -32,6 +34,17 @@ export function useLists(householdId: string, archived: boolean) {
         }),
       ),
     select: (data) => data.lists,
+    refetchInterval: LIVE_INTERVAL_MS,
+  })
+}
+
+/** Open items assigned to me, across every list I can see. */
+export function useAssignedItems(householdId: string) {
+  return useQuery({
+    queryKey: listKeys.assigned(householdId),
+    queryFn: () =>
+      unwrap(api.v1.households[':id'].lists.assigned.$get({ param: { id: householdId } })),
+    select: (data) => data.items,
     refetchInterval: LIVE_INTERVAL_MS,
   })
 }
@@ -139,6 +152,54 @@ export function useDeleteItem(householdId: string, listId: string) {
         param: { id: householdId, listId, itemId },
       }),
     ),
+  )
+}
+
+/** Several items at once, e.g. pasted one per line. */
+export function useAddItems(householdId: string, listId: string) {
+  return useListsMutation(householdId, (texts: string[]) =>
+    unwrap(
+      api.v1.households[':id'].lists[':listId'].items.bulk.$post({
+        param: { id: householdId, listId },
+        json: { texts },
+      }),
+    ),
+  )
+}
+
+/** Unticks everything, to use the list again. */
+export function useResetList(householdId: string, listId: string) {
+  return useListsMutation(householdId, () =>
+    unwrap(
+      api.v1.households[':id'].lists[':listId'].items.reset.$post({
+        param: { id: householdId, listId },
+      }),
+    ),
+  )
+}
+
+export function useDuplicateList(householdId: string, listId: string) {
+  return useListsMutation(householdId, (title: string) =>
+    unwrap(
+      api.v1.households[':id'].lists[':listId'].duplicate.$post({
+        param: { id: householdId, listId },
+        json: { title },
+      }),
+    ),
+  )
+}
+
+/** Ticks an item on any list (for the "for you" view, where the list varies). */
+export function useToggleAnyItem(householdId: string) {
+  return useListsMutation(
+    householdId,
+    ({ listId, itemId, done }: { listId: string; itemId: string; done: boolean }) =>
+      unwrap(
+        api.v1.households[':id'].lists[':listId'].items[':itemId'].$patch({
+          param: { id: householdId, listId, itemId },
+          json: { done },
+        }),
+      ),
   )
 }
 

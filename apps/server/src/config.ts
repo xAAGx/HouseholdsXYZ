@@ -24,6 +24,11 @@ const originList = z.string().transform((value, ctx) => {
   return origins
 })
 
+const optionalSecret = z
+  .string()
+  .optional()
+  .transform((value) => value?.trim() || undefined)
+
 const configSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -48,8 +53,45 @@ const configSchema = z
       ),
     CORS_ALLOWED_ORIGINS: originList,
     LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+    // Push notifications (all four, or none: push is then switched off).
+    // VAPID keys identify this server to browsers' push services; generate a
+    // pair with `pnpm --filter @households/server exec web-push generate-vapid-keys`.
+    VAPID_PUBLIC_KEY: optionalSecret.refine(
+      (key) => key === undefined || /^[A-Za-z0-9_-]{80,100}$/.test(key),
+      'must be a base64url VAPID public key',
+    ),
+    VAPID_PRIVATE_KEY: optionalSecret.refine(
+      (key) => key === undefined || /^[A-Za-z0-9_-]{40,50}$/.test(key),
+      'must be a base64url VAPID private key',
+    ),
+    // Who push services can contact about this server: mailto: or https: URL.
+    VAPID_SUBJECT: optionalSecret.refine(
+      (value) => value === undefined || /^(mailto:\S+@\S+|https:\/\/\S+)$/.test(value),
+      'must be a mailto: or https: URL',
+    ),
+    // 32 random bytes, base64: seals push subscriptions so the database can't
+    // read them. Generate with `openssl rand -base64 32`.
+    PUSH_SEAL_KEY: optionalSecret.refine(
+      (key) => key === undefined || /^[A-Za-z0-9+/]{43}=$/.test(key),
+      'must be 32 bytes, base64 (openssl rand -base64 32)',
+    ),
+    // Shared with Supabase Vault (households_push_secret): the database's timer
+    // signs reminder pushes with it. Unset: reminders stay in-app only.
+    INTERNAL_PUSH_SECRET: optionalSecret.refine(
+      (key) => key === undefined || key.length >= 32,
+      'must be at least 32 characters (openssl rand -hex 32)',
+    ),
   })
   .superRefine((env, ctx) => {
+    const push = [env.VAPID_PUBLIC_KEY, env.VAPID_PRIVATE_KEY, env.VAPID_SUBJECT, env.PUSH_SEAL_KEY]
+    if (push.some(Boolean) && !push.every(Boolean)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['VAPID_PUBLIC_KEY'],
+        message:
+          'set all of VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT and PUSH_SEAL_KEY, or none',
+      })
+    }
     if (env.NODE_ENV === 'production') {
       if (!env.SUPABASE_URL.startsWith('https://')) {
         ctx.addIssue({

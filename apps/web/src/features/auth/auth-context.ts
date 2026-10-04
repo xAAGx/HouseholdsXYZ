@@ -22,3 +22,8 @@ export function useAuth(): AuthState {
   if (!value) throw new Error('useAuth must be used inside <AuthProvider>')
   return value
 }
+
+/** The auth state, or null outside the signed-in part of the app (e.g. error pages). */
+export function useOptionalAuth(): AuthState | null {
+  return useContext(AuthContext)
+}

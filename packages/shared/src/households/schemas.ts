@@ -1,11 +1,13 @@
 import { z } from 'zod'
 
+import { isTimeZone } from '../calendar/schemas'
 import {
   cityIdSchema,
   countryCodeSchema,
   placeSlugSchema,
   type HouseholdPlace,
 } from '../geo/places'
+import { isCurrency } from '../money/format'
 import type { HouseholdPermission, HouseholdRole } from '../permissions/roles'
 import type { HouseholdVisibility } from '../privacy/visibility'
 import type { HouseholdMember } from './members'
@@ -65,6 +67,16 @@ export const updateHouseholdInputSchema = z
     name: householdNameSchema.optional(),
     bio: householdBioSchema.optional(),
     visibility: settableVisibilitySchema.optional(),
+    /** For reminders at home time ("Africa/Cairo"). */
+    timeZone: z.string().max(64).refine(isTimeZone, 'Choose a real time zone.').optional(),
+    /** ISO 4217, e.g. "EGP". */
+    currency: z
+      .string()
+      .regex(/^[A-Z]{3}$/, 'Choose a currency.')
+      .refine(isCurrency, 'Choose a currency.')
+      .optional(),
+    /** What 100 chore points are worth in pocket money, in minor units (null: nothing). */
+    pointsValueMinor: z.number().int().min(1).max(1000000).nullable().optional(),
   })
   .refine((input) => Object.values(input).some((value) => value !== undefined), {
     message: 'Nothing to change.',
@@ -86,6 +98,11 @@ export interface HouseholdDetail {
   visibility: HouseholdVisibility
   cityId: number | null
   place: HouseholdPlace | null
+  /** Null until someone sets it (reminders then use UTC). */
+  timeZone: string | null
+  currency: string
+  currencyDigits: number
+  pointsValueMinor: number | null
 }
 
 /** What outsiders see of a public household: never its members. */
@@ -103,6 +120,8 @@ export type HouseholdView =
       myRole: HouseholdRole
       permissions: HouseholdPermission[]
       members: HouseholdMember[]
+      /** For people who manage chores: chores and reward requests waiting for them. */
+      pendingApprovals: number
     }
   | { kind: 'public'; household: PublicHouseholdProfile }
   /** An old address of a household the caller can see. */

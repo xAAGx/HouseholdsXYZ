@@ -1,15 +1,20 @@
 import {
+  addListItemsInputSchema,
   ApiError,
   createListInputSchema,
   createListItemInputSchema,
+  duplicateListInputSchema,
+  guessStoreSection,
   reorderListItemsInputSchema,
   updateListInputSchema,
   updateListItemInputSchema,
+  type AssignedItem,
   type ListDetail,
   type ListItem,
   type ListSummary,
   type ListVisibility,
 } from '@households/shared'
+import type { HouseholdsSupabaseClient } from '@households/db'
 import { zValidator } from '@hono/zod-validator'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -30,13 +35,14 @@ const itemParam = zValidator(
 )
 
 const ITEM_FIELDS =
-  'id, text, quantity, note, assigned_to, due_on, done_at, done_by, position, created_by'
+  'id, text, quantity, note, category, assigned_to, due_on, done_at, done_by, position, created_by'
 
 interface ItemRow {
   id: string
   text: string
   quantity: string | null
   note: string | null
+  category: string | null
   assigned_to: string | null
   due_on: string | null
   done_at: string | null
@@ -50,6 +56,7 @@ const toItem = (row: ItemRow): ListItem => ({
   text: row.text,
   quantity: row.quantity,
   note: row.note,
+  category: row.category,
   assignedTo: row.assigned_to,
   dueOn: row.due_on,
   doneAt: row.done_at,
@@ -57,6 +64,14 @@ const toItem = (row: ItemRow): ListItem => ({
   position: row.position,
   createdBy: row.created_by,
 })
+
+/** The list's kind, or a 404 if the caller can't see it. */
+async function listKind(supabase: HouseholdsSupabaseClient, listId: string) {
+  const { data, error } = await supabase.from('lists').select('kind').eq('id', listId).maybeSingle()
+  if (error) throw toApiError(error)
+  if (!data) throw new ApiError('NOT_FOUND')
+  return data.kind
+}
 
 export const listRoutes = new Hono<AppEnv>()
   .get(
@@ -96,6 +111,28 @@ export const listRoutes = new Hono<AppEnv>()
       return c.json({ lists })
     },
   )
+
+  // Open items assigned to the caller, across every list they can see.
+  // (Registered before /:listId so "assigned" isn't taken for an id.)
+  .get('/assigned', householdParam, async (c) => {
+    const { id } = c.req.valid('param')
+    const { data, error } = await c.var.supabase
+      .from('list_items')
+      .select(`${ITEM_FIELDS}, list:lists!inner(id, title, archived_at)`)
+      .eq('household_id', id)
+      .eq('assigned_to', c.var.auth.userId)
+      .is('done_at', null)
+      .is('list.archived_at', null)
+      .order('due_on', { ascending: true, nullsFirst: false })
+      .limit(100)
+    if (error) throw toApiError(error)
+    const items: AssignedItem[] = data.map((row) => ({
+      listId: row.list.id,
+      listTitle: row.list.title,
+      item: toItem(row),
+    }))
+    return c.json({ items })
+  })
 
   .post(
     '/',
@@ -235,6 +272,7 @@ export const listRoutes = new Hono<AppEnv>()
     async (c) => {
       const { id, listId } = c.req.valid('param')
       const input = c.req.valid('json')
+      const kind = await listKind(c.var.supabase, listId)
       const { data, error } = await c.var.supabase
         .from('list_items')
         .insert({
@@ -245,6 +283,12 @@ export const listRoutes = new Hono<AppEnv>()
           text: input.text,
           quantity: input.quantity ?? null,
           note: input.note ?? null,
+          category:
+            input.category !== undefined
+              ? input.category
+              : kind === 'shopping'
+                ? guessStoreSection(input.text)
+                : null,
           assigned_to: input.assignedTo ?? null,
           due_on: input.dueOn ?? null,
         })
@@ -268,6 +312,7 @@ export const listRoutes = new Hono<AppEnv>()
           ...(input.text !== undefined && { text: input.text }),
           ...(input.quantity !== undefined && { quantity: input.quantity }),
           ...(input.note !== undefined && { note: input.note }),
+          ...(input.category !== undefined && { category: input.category }),
           ...(input.assignedTo !== undefined && { assigned_to: input.assignedTo }),
           ...(input.dueOn !== undefined && { due_on: input.dueOn }),
           // The database records the real time and who did it.
@@ -298,6 +343,103 @@ export const listRoutes = new Hono<AppEnv>()
     if (!data) throw new ApiError('FORBIDDEN')
     return c.json({ ok: true as const })
   })
+
+  // Several items at once (e.g. pasted one per line), in order.
+  .post(
+    '/:listId/items/bulk',
+    listParam,
+    zValidator('json', addListItemsInputSchema, validationHook),
+    async (c) => {
+      const { id, listId } = c.req.valid('param')
+      const kind = await listKind(c.var.supabase, listId)
+      const { error } = await c.var.supabase.from('list_items').insert(
+        c.req.valid('json').texts.map((text) => ({
+          list_id: listId,
+          household_id: id,
+          position: 0,
+          text,
+          category: kind === 'shopping' ? guessStoreSection(text) : null,
+        })),
+      )
+      if (error) throw toApiError(error)
+      return c.json({ ok: true as const }, 201)
+    },
+  )
+
+  // Unticks everything, to use the list again (packing, the weekly shop).
+  .post('/:listId/items/reset', listParam, async (c) => {
+    const { listId } = c.req.valid('param')
+    const { error } = await c.var.supabase
+      .from('list_items')
+      .update({ done_at: null })
+      .eq('list_id', listId)
+      .not('done_at', 'is', null)
+    if (error) throw toApiError(error)
+    return c.json({ ok: true as const })
+  })
+
+  // A copy with the same items, unticked, and the same audience.
+  .post(
+    '/:listId/duplicate',
+    listParam,
+    zValidator('json', duplicateListInputSchema, validationHook),
+    async (c) => {
+      const { id, listId } = c.req.valid('param')
+      const db = c.var.supabase
+      const me = c.var.auth.userId
+      const { data: source, error } = await db
+        .from('lists')
+        .select(
+          `kind, visibility, created_by, members:list_members(profile_id), items:list_items(${ITEM_FIELDS})`,
+        )
+        .eq('household_id', id)
+        .eq('id', listId)
+        .maybeSingle()
+      if (error) throw toApiError(error)
+      if (!source) throw new ApiError('NOT_FOUND')
+
+      const { data: copy, error: copyError } = await db
+        .from('lists')
+        .insert({
+          household_id: id,
+          title: c.req.valid('json').title,
+          kind: source.kind,
+          visibility: source.visibility,
+        })
+        .select('id')
+        .single()
+      if (copyError) throw toApiError(copyError)
+
+      if (source.visibility === 'selected_members') {
+        // Everyone who could see the original, apart from you (you're the creator now).
+        const ids = [source.created_by, ...source.members.map((m) => m.profile_id)].filter(
+          (profileId): profileId is string => profileId !== null && profileId !== me,
+        )
+        const { error: membersError } = await db.rpc('set_list_members', {
+          p_list_id: copy.id,
+          p_profile_ids: [...new Set(ids)],
+        })
+        if (membersError) throw toApiError(membersError)
+      }
+
+      const items = [...source.items].sort((a, b) => a.position - b.position)
+      if (items.length > 0) {
+        const { error: itemsError } = await db.from('list_items').insert(
+          items.map((item) => ({
+            list_id: copy.id,
+            household_id: id,
+            position: 0,
+            text: item.text,
+            quantity: item.quantity,
+            note: item.note,
+            category: item.category,
+          })),
+        )
+        if (itemsError) throw toApiError(itemsError)
+      }
+      return c.json({ list: { id: copy.id } }, 201)
+    },
+  )
 
   .post('/:listId/items/clear-done', listParam, async (c) => {
     const { listId } = c.req.valid('param')

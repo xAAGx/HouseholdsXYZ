@@ -34,3 +34,18 @@ const fullDayFormat = new Intl.DateTimeFormat(undefined, {
 export function formatFullDay(day: string): string {
   return fullDayFormat.format(new Date(`${day}T00:00:00Z`))
 }
+
+const relativeFormat = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+
+/** "just now", "5 minutes ago", "yesterday", then the date. */
+export function formatRelative(iso: string, now: Date = new Date()): string {
+  const seconds = Math.round((new Date(iso).getTime() - now.getTime()) / 1000)
+  const minutes = Math.round(seconds / 60)
+  const hours = Math.round(minutes / 60)
+  const days = Math.round(hours / 24)
+  if (Math.abs(seconds) < 60) return relativeFormat.format(0, 'second')
+  if (Math.abs(minutes) < 60) return relativeFormat.format(minutes, 'minute')
+  if (Math.abs(hours) < 24) return relativeFormat.format(hours, 'hour')
+  if (Math.abs(days) < 7) return relativeFormat.format(days, 'day')
+  return formatDate(iso)
+}

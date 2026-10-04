@@ -1,9 +1,13 @@
 import {
   CHORE_REPEAT_LABELS,
   CHORE_REPEATS,
+  CHORE_TIME_OF_DAY_LABELS,
+  CHORE_TIMES_OF_DAY,
   createChoreInputSchema,
+  WEEKDAY_LABELS,
   type ChoreBoard,
   type ChoreRepeat,
+  type ChoreTimeOfDay,
   type HouseholdMember,
 } from '@households/shared'
 import { useState, type FormEvent } from 'react'
@@ -15,6 +19,8 @@ import {
   CardList,
   CardTitle,
   Checkbox,
+  ChipButton,
+  ChipGroup,
   ConfirmButton,
   ErrorText,
   Grid,
@@ -27,18 +33,31 @@ import {
   TextField,
 } from '../../components/ui'
 import { apiErrorMessage } from '../../lib/api-errors'
+import { formatClock } from '../calendar/dates'
 import type { ChoreActions } from './queries'
 
 type BoardChore = ChoreBoard['chores'][number]
+
+// "For" option meaning: people take turns (profile ids are uuids, so no clash).
+const TURNS = 'turns'
+const EVERY_DAY = WEEKDAY_LABELS.map((weekday) => weekday.day as number)
 
 interface ChoreFields {
   title: string
   notes: string
   points: string
+  /** A profile id, '' for anyone, or TURNS. */
   assignedTo: string
   repeat: ChoreRepeat
   dueOn: string
   needsApproval: boolean
+  timeOfDay: ChoreTimeOfDay
+  /** Daily chores: the days it's on. */
+  weekdays: number[]
+  /** With TURNS: who takes turns, in order. */
+  rotation: string[]
+  /** "16:00": remind them then if it isn't done; '' for no reminder. */
+  remindAt: string
 }
 
 const EMPTY: ChoreFields = {
@@ -49,6 +68,10 @@ const EMPTY: ChoreFields = {
   repeat: 'daily',
   dueOn: '',
   needsApproval: true,
+  timeOfDay: 'anytime',
+  weekdays: EVERY_DAY,
+  rotation: [],
+  remindAt: '',
 }
 
 function fieldsOf(chore: BoardChore): ChoreFields {
@@ -56,23 +79,56 @@ function fieldsOf(chore: BoardChore): ChoreFields {
     title: chore.title,
     notes: chore.notes ?? '',
     points: String(chore.points),
-    assignedTo: chore.assignedTo ?? '',
+    assignedTo: chore.rotation ? TURNS : (chore.assignedTo ?? ''),
     repeat: chore.repeat,
     dueOn: chore.dueOn ?? '',
     needsApproval: chore.needsApproval,
+    timeOfDay: chore.timeOfDay,
+    weekdays: chore.weekdays ?? EVERY_DAY,
+    rotation: chore.rotation ?? [],
+    remindAt: chore.remindAt ?? '',
   }
 }
 
 function toInput(fields: ChoreFields) {
+  const turns = fields.assignedTo === TURNS && fields.repeat !== 'once'
   return {
     title: fields.title,
     notes: fields.notes,
     points: Number(fields.points),
-    assignedTo: fields.assignedTo || null,
+    assignedTo: fields.assignedTo && fields.assignedTo !== TURNS ? fields.assignedTo : null,
     repeat: fields.repeat,
     dueOn: fields.repeat === 'once' && fields.dueOn ? fields.dueOn : null,
     needsApproval: fields.needsApproval,
+    timeOfDay: fields.timeOfDay,
+    weekdays:
+      fields.repeat === 'daily' && fields.weekdays.length < 7
+        ? [...fields.weekdays].sort((a, b) => a - b)
+        : null,
+    rotation: turns ? fields.rotation : null,
+    remindAt: fields.remindAt || null,
   }
+}
+
+/** Who, when and how, in one line for the chore list. */
+function summary(chore: BoardChore, members: HouseholdMember[]): string {
+  const name = (id: string) =>
+    members.find((member) => member.profileId === id)?.displayName ?? 'Someone'
+  const who = chore.rotation
+    ? `Turns: ${chore.rotation.map(name).join(', then ')}`
+    : chore.assignedTo
+      ? name(chore.assignedTo)
+      : 'Anyone'
+  const when =
+    chore.repeat === 'daily' && chore.weekdays
+      ? WEEKDAY_LABELS.filter((weekday) => chore.weekdays?.includes(weekday.day))
+          .map((weekday) => weekday.short)
+          .join(', ')
+      : CHORE_REPEAT_LABELS[chore.repeat]
+  const time =
+    chore.timeOfDay === 'anytime' ? '' : ` · ${CHORE_TIME_OF_DAY_LABELS[chore.timeOfDay]}`
+  const reminder = chore.remindAt ? ` · reminder ${formatClock(chore.remindAt)}` : ''
+  return `${who} · ${when}${time}${reminder}${chore.needsApproval ? ' · needs approval' : ''}`
 }
 
 /** For people who manage chores: add, edit, archive and delete them. */
@@ -136,7 +192,13 @@ function NewChore({ members, actions }: { members: HouseholdMember[]; actions: C
     setErrors({})
     try {
       await actions.createChore.mutateAsync(parsed.data)
-      setFields({ ...EMPTY, assignedTo: fields.assignedTo, repeat: fields.repeat })
+      setFields({
+        ...EMPTY,
+        remindAt: fields.remindAt,
+        assignedTo: fields.assignedTo,
+        rotation: fields.rotation,
+        repeat: fields.repeat,
+      })
     } catch {
       // Shown below.
     }
@@ -172,6 +234,10 @@ function ChoreForm({
 }) {
   const set = <K extends keyof ChoreFields>(key: K, value: ChoreFields[K]) =>
     onChange({ ...fields, [key]: value })
+  const toggle = <T,>(list: T[], value: T) =>
+    list.includes(value) ? list.filter((item) => item !== value) : [...list, value]
+  const canTakeTurns = fields.repeat !== 'once' && members.length >= 2
+  const turns = fields.assignedTo === TURNS && canTakeTurns
 
   return (
     <Stack $gap={4}>
@@ -187,7 +253,7 @@ function ChoreForm({
         <Select
           label="For"
           placeholder="Anyone"
-          value={fields.assignedTo}
+          value={turns ? TURNS : fields.assignedTo === TURNS ? '' : fields.assignedTo}
           onChange={(e) => set('assignedTo', e.target.value)}
         >
           {members.map((member) => (
@@ -195,6 +261,7 @@ function ChoreForm({
               {member.displayName}
             </option>
           ))}
+          {canTakeTurns && <option value={TURNS}>Take turns</option>}
         </Select>
         <TextField
           label="Points"
@@ -217,6 +284,25 @@ function ChoreForm({
             </option>
           ))}
         </Select>
+        <Select
+          label="When in the day"
+          value={fields.timeOfDay}
+          onChange={(e) => set('timeOfDay', e.target.value as ChoreTimeOfDay)}
+        >
+          {CHORE_TIMES_OF_DAY.map((time) => (
+            <option key={time} value={time}>
+              {CHORE_TIME_OF_DAY_LABELS[time]}
+            </option>
+          ))}
+        </Select>
+        <TextField
+          label="Remind at (optional)"
+          type="time"
+          hint="If it isn’t done by then (household time)."
+          value={fields.remindAt}
+          onChange={(e) => set('remindAt', e.target.value)}
+          error={errors.remindAt}
+        />
         {fields.repeat === 'once' && (
           <TextField
             label="Due (optional)"
@@ -227,6 +313,43 @@ function ChoreForm({
           />
         )}
       </Grid>
+      {fields.repeat === 'daily' && (
+        <ChipGroup label="On these days" error={errors.weekdays}>
+          {WEEKDAY_LABELS.map((weekday) => (
+            <ChipButton
+              key={weekday.day}
+              pressed={fields.weekdays.includes(weekday.day)}
+              aria-label={weekday.long}
+              onClick={() => set('weekdays', toggle(fields.weekdays, weekday.day as number))}
+            >
+              {weekday.short}
+            </ChipButton>
+          ))}
+        </ChipGroup>
+      )}
+      {turns && (
+        <ChipGroup
+          label="Who takes turns"
+          hint={`Tap people in the order they go. It moves to the next person each ${
+            fields.repeat === 'daily' ? 'day' : fields.repeat === 'weekly' ? 'week' : 'month'
+          }.`}
+          error={errors.rotation}
+        >
+          {members.map((member) => {
+            const place = fields.rotation.indexOf(member.profileId)
+            return (
+              <ChipButton
+                key={member.profileId}
+                pressed={place >= 0}
+                onClick={() => set('rotation', toggle(fields.rotation, member.profileId))}
+              >
+                {place >= 0 ? `${place + 1}. ` : ''}
+                {member.displayName}
+              </ChipButton>
+            )
+          })}
+        </ChipGroup>
+      )}
       <TextArea
         label="Notes (optional)"
         rows={2}
@@ -241,6 +364,11 @@ function ChoreForm({
       >
         Someone who manages chores approves it before the points count
       </Checkbox>
+      {fields.needsApproval && (
+        <Muted>
+          Nobody approves their own chores: yours wait for someone else who manages chores.
+        </Muted>
+      )}
     </Stack>
   )
 }
@@ -255,9 +383,10 @@ function ChoreItem({
   actions: ChoreActions
 }) {
   const [editing, setEditing] = useState(false)
+  const [nudged, setNudged] = useState(false)
   const [fields, setFields] = useState<ChoreFields>(() => fieldsOf(chore))
+  const canNudge = !chore.archived && Boolean(chore.assignedTo ?? chore.rotation)
   const [errors, setErrors] = useState<Partial<Record<keyof ChoreFields, string>>>({})
-  const who = members.find((member) => member.profileId === chore.assignedTo)?.displayName
 
   async function onSave(event: FormEvent) {
     event.preventDefault()
@@ -309,14 +438,26 @@ function ChoreItem({
         <Stack $gap={1}>
           <Title>{chore.title}</Title>
           <Row $gap={2}>
-            <Muted as="span">
-              {who ?? 'Anyone'} · {CHORE_REPEAT_LABELS[chore.repeat]}
-              {chore.needsApproval ? ' · needs approval' : ''}
-            </Muted>
+            <Muted as="span">{summary(chore, members)}</Muted>
             {chore.points > 0 && <PointsBadge>+{chore.points}</PointsBadge>}
           </Row>
         </Stack>
         <Row $gap={1}>
+          {canNudge && (
+            <Button
+              type="button"
+              $variant="ghost"
+              $size="sm"
+              disabled={actions.nudge.isPending || nudged}
+              onClick={() =>
+                actions.nudge.mutate(chore.id, {
+                  onSuccess: () => setNudged(true),
+                })
+              }
+            >
+              {nudged ? 'Reminded' : 'Remind'}
+            </Button>
+          )}
           {!chore.archived && (
             <Button type="button" $variant="ghost" $size="sm" onClick={() => setEditing(true)}>
               Edit
@@ -342,6 +483,9 @@ function ChoreItem({
           </ConfirmButton>
         </Row>
       </Line>
+      {actions.nudge.isError && actions.nudge.variables === chore.id && (
+        <ErrorText role="alert">{apiErrorMessage(actions.nudge.error)}</ErrorText>
+      )}
     </li>
   )
 }

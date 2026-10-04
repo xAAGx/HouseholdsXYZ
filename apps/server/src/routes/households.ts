@@ -1,4 +1,5 @@
 import {
+  currencyDigits,
   addChildInputSchema,
   ApiError,
   transferOwnershipInputSchema,
@@ -109,13 +110,16 @@ export const householdRoutes = new Hono<AppEnv>()
     zValidator('json', updateHouseholdInputSchema, validationHook),
     async (c) => {
       const { id } = c.req.valid('param')
-      const { name, bio, visibility } = c.req.valid('json')
+      const { name, bio, visibility, timeZone, currency, pointsValueMinor } = c.req.valid('json')
       const { data, error } = await c.var.supabase
         .from('households')
         .update({
           ...(name !== undefined && { name }),
           ...(bio !== undefined && { bio: bio || null }),
           ...(visibility !== undefined && { visibility }),
+          ...(timeZone !== undefined && { time_zone: timeZone }),
+          ...(currency !== undefined && { currency, currency_digits: currencyDigits(currency) }),
+          ...(pointsValueMinor !== undefined && { points_value_minor: pointsValueMinor }),
         })
         .eq('id', id)
         .select('id')

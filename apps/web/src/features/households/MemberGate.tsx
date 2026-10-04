@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { Navigate } from 'react-router'
+import styled from 'styled-components'
 
 import { AppHeader } from '../../components/app/AppHeader'
 import { ButtonLink, Muted, Page } from '../../components/ui'
@@ -47,9 +48,21 @@ export function HouseholdSubHeader({ view, basePath }: { view: MemberView; baseP
     <AppHeader
       actions={
         <ButtonLink to={basePath} $variant="ghost" $size="sm">
-          {view.household.name}
+          <HouseholdName>{view.household.name}</HouseholdName>
         </ButtonLink>
       }
     />
   )
 }
+
+// Long names shorten on phones so the header stays on one line.
+const HouseholdName = styled.span`
+  max-width: 240px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+
+  @media (max-width: ${({ theme }) => theme.breakpoints.sm}px) {
+    max-width: 120px;
+  }
+`

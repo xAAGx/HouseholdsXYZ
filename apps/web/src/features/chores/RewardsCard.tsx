@@ -11,6 +11,7 @@ import {
   Grid,
   Muted,
   PointsBadge,
+  ProgressBar,
   Row,
   Stack,
   StatusText,
@@ -57,40 +58,49 @@ export function RewardsCard({
               const short = reward.cost - balance
               return (
                 <li key={reward.id}>
-                  <Line>
-                    <Stack $gap={1} $align="start">
-                      <Title>{reward.title}</Title>
-                      {reward.description && <Muted>{reward.description}</Muted>}
-                      <PointsBadge>{reward.cost.toLocaleString()} pts</PointsBadge>
-                    </Stack>
-                    <Row $gap={2}>
-                      {short > 0 ? (
-                        <Muted as="span">{short.toLocaleString()} more to go</Muted>
-                      ) : (
-                        <Button
-                          type="button"
-                          $variant="secondary"
-                          $size="sm"
-                          disabled={actions.redeem.isPending}
-                          onClick={() => actions.redeem.mutate(reward.id)}
-                        >
-                          Ask for it
-                        </Button>
-                      )}
-                      {board.canManage && (
-                        <Button
-                          type="button"
-                          $variant="ghost"
-                          $size="sm"
-                          onClick={() =>
-                            actions.updateReward.mutate({ rewardId: reward.id, archived: true })
-                          }
-                        >
-                          Archive
-                        </Button>
-                      )}
-                    </Row>
-                  </Line>
+                  <Stack $gap={3}>
+                    <Line>
+                      <Stack $gap={1} $align="start">
+                        <Title>{reward.title}</Title>
+                        {reward.description && <Muted>{reward.description}</Muted>}
+                        <PointsBadge>{reward.cost.toLocaleString()} pts</PointsBadge>
+                      </Stack>
+                      <Row $gap={2}>
+                        {short > 0 ? (
+                          <Muted as="span">{short.toLocaleString()} more to go</Muted>
+                        ) : (
+                          <Button
+                            type="button"
+                            $variant="secondary"
+                            $size="sm"
+                            disabled={actions.redeem.isPending}
+                            onClick={() => actions.redeem.mutate(reward.id)}
+                          >
+                            Ask for it
+                          </Button>
+                        )}
+                        {board.canManage && (
+                          <Button
+                            type="button"
+                            $variant="ghost"
+                            $size="sm"
+                            onClick={() =>
+                              actions.updateReward.mutate({ rewardId: reward.id, archived: true })
+                            }
+                          >
+                            Archive
+                          </Button>
+                        )}
+                      </Row>
+                    </Line>
+                    {short > 0 && (
+                      <ProgressBar
+                        value={balance}
+                        max={reward.cost}
+                        label={`${balance.toLocaleString()} of ${reward.cost.toLocaleString()} points`}
+                      />
+                    )}
+                  </Stack>
                 </li>
               )
             })}

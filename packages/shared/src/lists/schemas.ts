@@ -86,6 +86,7 @@ export const createListItemInputSchema = z.strictObject({
   text: listItemTextSchema,
   quantity: optionalText(40).optional(),
   note: optionalText(500).optional(),
+  category: optionalText(40).optional(),
   assignedTo: z.uuid().nullable().optional(),
   dueOn: dateSchema.nullable().optional(),
 })
@@ -96,6 +97,7 @@ export const updateListItemInputSchema = z
     text: listItemTextSchema.optional(),
     quantity: optionalText(40).optional(),
     note: optionalText(500).optional(),
+    category: optionalText(40).optional(),
     assignedTo: z.uuid().nullable().optional(),
     dueOn: dateSchema.nullable().optional(),
     done: z.boolean().optional(),
@@ -108,6 +110,26 @@ export type UpdateListItemInput = z.input<typeof updateListItemInputSchema>
 export const reorderListItemsInputSchema = z.strictObject({
   itemIds: z.array(z.uuid()).max(500),
 })
+
+/** Several items at once, e.g. pasted one per line. */
+export const MAX_BULK_ITEMS = 50
+export const addListItemsInputSchema = z.strictObject({
+  texts: z
+    .array(listItemTextSchema)
+    .min(1, 'Write at least one item.')
+    .max(MAX_BULK_ITEMS, `Add up to ${MAX_BULK_ITEMS} at a time.`),
+})
+
+/** Splits pasted text into items: one per line, bullets and blanks dropped. */
+export function splitItemLines(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim())
+    .filter(Boolean)
+}
+
+/** A copy of a list, with its items unticked (e.g. the packing list for the next trip). */
+export const duplicateListInputSchema = z.strictObject({ title: listTitleSchema })
 
 export interface ListSummary {
   id: string
@@ -126,12 +148,21 @@ export interface ListItem {
   text: string
   quantity: string | null
   note: string | null
+  /** Store section, for shopping lists. */
+  category: string | null
   assignedTo: string | null
   dueOn: string | null
   doneAt: string | null
   doneBy: string | null
   position: number
   createdBy: string | null
+}
+
+/** An item someone has been asked to do, with the list it's on. */
+export interface AssignedItem {
+  listId: string
+  listTitle: string
+  item: ListItem
 }
 
 export interface ListDetail extends ListSummary {

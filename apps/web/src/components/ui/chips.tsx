@@ -24,17 +24,17 @@ export const StatusDot = styled.i<{ $tone?: Accent }>`
   background: ${({ theme, $tone = 'grass' }) => theme.colors.accents[$tone].base};
 `
 
-/** A selectable option (audiences, filters). Selected = primary fill. */
-export const Chip = styled.span<{ $selected?: boolean }>`
+/** A selectable option (audiences, filters) or a tag. Selected = primary fill; `$small` for tags in lists. */
+export const Chip = styled.span<{ $selected?: boolean; $small?: boolean }>`
   display: inline-flex;
   align-items: center;
-  padding: 6px 13px;
+  padding: ${({ $small }) => ($small ? '2px 10px' : '6px 13px')};
   border: ${({ theme }) => theme.borderWidths.outline}px solid
     ${({ theme }) => theme.colors.outline};
   border-radius: ${({ theme }) => theme.radii.pill}px;
   background: ${({ theme, $selected }) => ($selected ? theme.colors.primary : theme.colors.surface)};
   color: ${({ theme, $selected }) => ($selected ? theme.colors.onPrimary : theme.colors.text)};
-  font-size: ${({ theme }) => theme.fontSizes.sm}px;
+  font-size: ${({ theme, $small }) => ($small ? theme.fontSizes.xs : theme.fontSizes.sm)}px;
   font-weight: ${({ theme }) => theme.fontWeights.bold};
 `
 
@@ -70,4 +70,36 @@ export const StatusText = styled.small<{ $status: 'success' | 'warning' | 'dange
   font-size: 12.5px;
   font-weight: ${({ theme }) => theme.fontWeights.bold};
   color: ${({ theme, $status }) => theme.colors[$status]};
+`
+
+/**
+ * A small count on a button or link ("3" unread). Body face, not playful.
+ * `$floating` pins it to the top-right corner of a positioned parent (an icon button).
+ */
+export const CountBadge = styled.span<{ $floating?: boolean }>`
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border: 1.5px solid ${({ theme }) => theme.colors.outline};
+  border-radius: ${({ theme }) => theme.radii.pill}px;
+  background: ${({ theme }) => theme.colors.primary};
+  color: ${({ theme }) => theme.colors.onPrimary};
+  font-size: 12px;
+  font-weight: ${({ theme }) => theme.fontWeights.bold};
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+
+  ${({ $floating }) =>
+    $floating &&
+    `
+      position: absolute;
+      top: -4px;
+      right: -4px;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 4px;
+      font-size: 11px;
+    `}
 `
